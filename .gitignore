@@ -1,0 +1,11 @@
+/bin/
+/coverage
+/coverage.out
+/test-results/
+/.venv/
+/data/
+/models/
+/.env
+/.env.*
+*.sqlite3*
+*.syso
