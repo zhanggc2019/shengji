@@ -3,6 +3,9 @@ param(
     [switch]$Offline,
     [ValidateSet('amd64', 'arm64')]
     [string]$Architecture = 'amd64',
+    [string]$Version,
+    [ValidatePattern('^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$')]
+    [string]$UpdateRepository = 'zhanggc2019/shengji',
     [string]$Wails = 'wails3',
     [string]$Makensis = 'makensis'
 )
@@ -19,7 +22,17 @@ $oddRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $oddOutput = Join-Path $oddRoot 'bin'
 $oddStage = Join-Path $oddOutput "windows-$Architecture"
 $oddAssets = Join-Path $oddStage 'build'
-$oddVersion = '0.1.0'
+if ($Version -eq '') {
+    $Version = (Get-Content -Raw -LiteralPath (Join-Path $oddRoot 'internal\buildinfo\version.txt')).Trim()
+}
+if ($Version -cnotmatch '^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$' -or
+    ($Version.Split('.') | Where-Object { [int]$_ -gt 65535 })) {
+    throw 'Version must contain three Windows version numbers from 0 to 65535.'
+}
+$oddBuildInfo = 'github.com/zhanggc2019/shengji/internal/buildinfo'
+$oddLinker = "-s -w -X ${oddBuildInfo}.releaseVersion=$Version"
+$oddDesktopLinker = "$oddLinker -H windowsgui -X ${oddBuildInfo}.UpdateRepository=$UpdateRepository"
+if ($Offline) { $oddDesktopLinker += " -X ${oddBuildInfo}.OfflineInstaller=true" }
 $oddDesktop = Join-Path $oddOutput "Shengji-$Architecture.exe"
 $oddServer = Join-Path $oddOutput "Shengji-server-$Architecture.exe"
 if ($Offline -and $Architecture -ne 'amd64') { throw 'The offline installer is verified on Windows AMD64.' }
@@ -38,16 +51,16 @@ try {
     New-Item -ItemType Directory -Force -Path $oddOutput | Out-Null
     Invoke-BuildTool $Wails @('update', 'build-assets', '-dir', $oddAssets, '-name', 'Shengji',
         '-binaryname', 'Shengji', '-productname', '声记', '-productcompany', 'OddMeta',
-        '-productidentifier', 'net.oddmeta.oddminutes.go', '-productversion', $oddVersion,
+        '-productidentifier', 'net.oddmeta.oddminutes.go', '-productversion', $Version,
         '-productdescription', 'Local meeting recorder', '-productcopyright', 'OddMeta')
     Invoke-BuildTool $Wails @('generate', 'syso', '-arch', $Architecture,
         '-icon', $oddIcon,
         '-manifest', (Join-Path $oddAssets 'windows\wails.exe.manifest'),
         '-info', (Join-Path $oddAssets 'windows\info.json'), '-out', $oddResource)
-    Invoke-BuildTool 'go' @('build', '-tags', 'production', '-trimpath', '-ldflags', '-s -w -H windowsgui',
+    Invoke-BuildTool 'go' @('build', '-tags', 'production', '-trimpath', '-ldflags', $oddDesktopLinker,
         '-o', $oddDesktop, './cmd/shengji')
     Remove-Item -LiteralPath $oddResource
-    Invoke-BuildTool 'go' @('build', '-tags', 'production', '-trimpath', '-ldflags', '-s -w',
+    Invoke-BuildTool 'go' @('build', '-tags', 'production', '-trimpath', '-ldflags', $oddLinker,
         '-o', $oddServer, './cmd/shengji-server')
     $oddExtraDefines = @()
     if ($Offline) {

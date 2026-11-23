@@ -18,7 +18,6 @@ func TestASRBackends(t *testing.T) {
 	tests := []struct {
 		provider, model, path, format, field, key string
 	}{
-		{"oddasr", "whisper-1", "/v1/audio/transcriptions", "verbose_json", "word", "odd-key"},
 		{"groq", "whisper-large-v3-turbo", "/v1/audio/transcriptions", "verbose_json", "word", "groq-key"},
 		{"openai", "gpt-transcribe", "/v1/audio/transcriptions", "json", "", "openai-key"},
 		{"openai", "gpt-4o-transcribe-diarize", "/v1/audio/transcriptions", "diarized_json", "", "openai-key"},
@@ -61,7 +60,7 @@ func TestASRBackends(t *testing.T) {
 			if err := validateSettings(c); err != nil {
 				t.Fatal(err)
 			}
-			p := &HTTPAI{ASRKey: "odd-key", ASRKeys: map[string]string{"groq": "groq-key", "openai": "openai-key"}}
+			p := &HTTPAI{ASRKeys: map[string]string{"groq": "groq-key", "openai": "openai-key"}}
 			segments, err := p.Transcribe(context.Background(), c, path, "zh")
 			if err != nil || len(segments) != 1 || segments[0].End != 1.5 {
 				t.Fatalf("bad response: %+v %v", segments, err)

@@ -83,6 +83,10 @@ func (a *App) runJob(job Job) error {
 		if err == nil {
 			switch job.Kind {
 			case "transcription":
+				if isLegacyASR(config.ASRProvider) {
+					err = errors.New("原转录服务已移除，请在「模型设置」选择转录服务后重新生成")
+					break
+				}
 				if !m.HasAudio {
 					err = errors.New("没有可转录的音频")
 					break
@@ -99,6 +103,10 @@ func (a *App) runJob(job Job) error {
 					err = errors.New("转录服务没有返回可用文本")
 				}
 			case "summary":
+				config.summaryKey, err = a.credential(config.summaryCredentialScope())
+				if err != nil {
+					break
+				}
 				summary, err = a.ai.Summarize(a.ctx, config, m.Segments)
 				if err == nil && summary == "" {
 					err = errors.New("模型没有返回摘要")

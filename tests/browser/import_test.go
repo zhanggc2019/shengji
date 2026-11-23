@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -163,12 +162,12 @@ func checkModelChoices(t *testing.T, page pw.Page) {
 	must(t, expect(page.Locator("#notice")).ToContainText("模型设置已保存"))
 	openSettings(t, page)
 	must(t, expect(model).ToHaveValue("paraformer"))
-	selectValue(t, provider, "oddasr")
+	selectValue(t, provider, "openai")
 	must(t, expect(link).ToBeHidden())
 	must(t, role(dialog, "button", "取消", true).Click())
 }
 
-// checkSummaryChoices confirms that each fixed cloud preset saves just its chosen model.
+// checkSummaryChoices verifies that each cloud preset saves its model and write-only API key.
 func checkSummaryChoices(t *testing.T, page pw.Page, url string) {
 	for _, entry := range []struct{ provider, model string }{
 		{"deepseek", "deepseek-v4-pro"}, {"zhipu", "glm-5.3"}, {"siliconflow", "deepseek-ai/DeepSeek-V3"},
@@ -176,21 +175,35 @@ func checkSummaryChoices(t *testing.T, page pw.Page, url string) {
 		dialog := openSettings(t, page)
 		selectValue(t, dialog.GetByLabel("摘要服务", pw.LocatorGetByLabelOptions{Exact: pw.Bool(true)}), entry.provider)
 		must(t, expect(dialog.GetByLabel("摘要服务地址")).ToBeHidden())
-		must(t, expect(dialog.Locator("#llm-key-help")).ToContainText("SHENGJI_"+strings.ToUpper(entry.provider)+"_API_KEY"))
+		key := dialog.GetByLabel("摘要 API Key")
+		must(t, expect(key).ToHaveAttribute("type", "password"))
+		must(t, key.Fill("fixture-"+entry.provider))
 		selectValue(t, dialog.GetByLabel("摘要模型", pw.LocatorGetByLabelOptions{Exact: pw.Bool(true)}), entry.model)
 		must(t, role(dialog, "button", "保存", true).Click())
 		must(t, expect(dialog).ToBeHidden())
-		response := request(t, http.MethodGet, url+"/api/settings", nil, http.StatusOK)
+		response := request(t, http.MethodGet, url+"/api/settings?credentials=1", nil, http.StatusOK)
 		var saved struct {
-			Provider string `json:"provider"`
-			Model    string `json:"llm_model"`
-			URL      string `json:"llm_url"`
+			Provider    string `json:"provider"`
+			Model       string `json:"llm_model"`
+			URL         string `json:"llm_url"`
+			Credentials struct {
+				LLMSaved bool `json:"llm_saved"`
+			} `json:"credentials"`
 		}
 		err := json.NewDecoder(response.Body).Decode(&saved)
 		_ = response.Body.Close()
 		must(t, err)
-		if saved.Provider != entry.provider || saved.Model != entry.model || saved.URL != "" {
+		if saved.Provider != entry.provider || saved.Model != entry.model || saved.URL != "" || !saved.Credentials.LLMSaved {
 			t.Fatalf("unexpected saved provider: %+v", saved)
 		}
 	}
+	dialog := openSettings(t, page)
+	must(t, expect(dialog.GetByLabel("摘要 API Key")).ToHaveValue(""))
+	must(t, expect(dialog.Locator("#llm-key-help")).ToContainText("已保存"))
+	must(t, dialog.GetByLabel("清除已保存的摘要密钥").Check())
+	must(t, role(dialog, "button", "保存", true).Click())
+	must(t, expect(dialog).ToBeHidden())
+	dialog = openSettings(t, page)
+	must(t, expect(dialog.GetByLabel("清除已保存的摘要密钥")).ToBeHidden())
+	must(t, role(dialog, "button", "取消", true).Click())
 }

@@ -83,14 +83,25 @@ func IsLANAddress(ip netip.Addr) bool {
 	return ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }
 
+func requestHost(r *http.Request) string {
+	host := r.Host
+	if parsed, _, err := net.SplitHostPort(host); err == nil {
+		host = parsed
+	}
+	return strings.Trim(host, "[]")
+}
+
+func canManageCredentials(r *http.Request) bool {
+	peer, _ := netip.ParseAddrPort(r.RemoteAddr)
+	host := requestHost(r)
+	ip, _ := netip.ParseAddr(host)
+	return peer.Addr().Unmap().IsLoopback() && (ip.Unmap().IsLoopback() || strings.EqualFold(host, "localhost"))
+}
+
 // networkBoundary restricts client and Host addresses before checking browser origins.
 func networkBoundary(next http.Handler, allowLAN bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := r.Host
-		if parsed, _, err := net.SplitHostPort(host); err == nil {
-			host = parsed
-		}
-		host = strings.Trim(host, "[]")
+		host := requestHost(r)
 		ip, _ := netip.ParseAddr(host)
 		if !strings.EqualFold(host, "localhost") && !ip.Unmap().IsLoopback() && !(allowLAN && IsLANAddress(ip)) {
 			fail(w, http.StatusForbidden, "请使用本机或局域网 IP 地址访问")

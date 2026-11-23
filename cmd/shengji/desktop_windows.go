@@ -14,11 +14,14 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/zhanggc2019/shengji/internal/buildinfo"
 )
 
 type desktopSession struct {
-	app    *application.App
-	window atomic.Pointer[application.WebviewWindow]
+	app                *application.App
+	window             atomic.Pointer[application.WebviewWindow]
+	updateBusy         atomic.Bool
+	lastOfferedVersion string
 }
 
 // newDesktopSession registers reactivation before opening the listener or SQLite library.
@@ -35,14 +38,41 @@ func newDesktopSession(dataDir string) (*desktopSession, error) {
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: fmt.Sprintf("net.oddmeta.shengji.%x", key[:16]),
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
-				if window := session.window.Load(); window != nil {
-					window.Show()
-					window.Focus()
-				}
+				session.showWindow()
 			},
 		},
 	})
 	return session, nil
+}
+
+func desktopWindowOptions(url string, screen *application.Screen) application.WebviewWindowOptions {
+	const defaultWidth, defaultHeight = 920, 640
+	options := application.WebviewWindowOptions{
+		Title: "声记", URL: url, Width: defaultWidth, Height: defaultHeight, MinWidth: 360, MinHeight: 320,
+	}
+	if screen != nil && screen.WorkArea.Width > 0 && screen.WorkArea.Height > 0 {
+		const screenMargin = 12
+		options.Screen = screen
+		options.Width = min(options.Width, max(1, screen.WorkArea.Width-2*screenMargin))
+		options.Height = min(options.Height, max(1, screen.WorkArea.Height-2*screenMargin))
+		if options.Width*defaultHeight < options.Height*defaultWidth {
+			heightForWidth := max(options.MinHeight, options.Width*defaultHeight/defaultWidth)
+			options.Height = min(options.Height, heightForWidth)
+		} else {
+			widthForHeight := max(options.MinWidth, options.Height*defaultWidth/defaultHeight)
+			options.Width = min(options.Width, widthForHeight)
+		}
+		options.MinWidth = min(options.MinWidth, options.Width)
+		options.MinHeight = min(options.MinHeight, options.Height)
+	}
+	return options
+}
+
+func (session *desktopSession) showWindow() {
+	if window := session.window.Load(); window != nil {
+		window.Show()
+		window.Focus()
+	}
 }
 
 // run keeps the shared local server alive while the native window is hidden.
@@ -51,13 +81,14 @@ func (session *desktopSession) run(ctx context.Context, url string, icon []byte)
 	if len(icon) > 0 {
 		app.SetIcon(icon)
 	}
-	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "声记", URL: url, Width: 1230, Height: 820, MinWidth: 760, MinHeight: 580,
-	})
-	session.window.Store(window)
-	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		e.Cancel()
-		window.Hide()
+	// Wails populates the DPI-adjusted screen work areas before this event.
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		window := app.Window.NewWithOptions(desktopWindowOptions(url, app.Screen.GetPrimary()))
+		window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+			e.Cancel()
+			window.Hide()
+		})
+		session.window.Store(window)
 	})
 	tray := app.SystemTray.New()
 	if len(icon) > 0 {
@@ -65,12 +96,22 @@ func (session *desktopSession) run(ctx context.Context, url string, icon []byte)
 	}
 	tray.SetTooltip("声记")
 	menu := app.NewMenu()
-	menu.Add("显示主窗口").OnClick(func(*application.Context) { window.Show(); window.Focus() })
+	menu.Add("显示主窗口").OnClick(func(*application.Context) { session.showWindow() })
 	menu.Add("在浏览器中打开").OnClick(func(*application.Context) { _ = app.Browser.OpenURL(url) })
+	if buildinfo.UpdateRepository != "" {
+		updateCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		menu.Add("检查更新 · v" + buildinfo.Version()).OnClick(func(*application.Context) {
+			go session.checkForUpdate(updateCtx, tray, true)
+		})
+		app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+			go session.watchUpdates(updateCtx, tray)
+		})
+	}
 	menu.AddSeparator()
 	menu.Add("退出声记").OnClick(func(*application.Context) { app.Quit() })
 	tray.SetMenu(menu)
-	tray.OnClick(func() { window.Show(); window.Focus() })
+	tray.OnClick(session.showWindow)
 	done := make(chan struct{})
 	defer close(done)
 	go func() {

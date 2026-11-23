@@ -277,7 +277,7 @@ dialog textarea, dialog input, dialog select { min-width: 0; }
 #transcription-source, #transcription-metrics, .transcription-history { margin-bottom: .45rem; }
 .transcription-history summary { cursor: pointer; }
 .transcription-history ul { margin: .35rem 0; padding-inline-start: 1.3rem; }
-.import-field { display: grid; gap: 8px; }
+.import-field, .model-key-field { display: grid; gap: 8px; }
 .setup-guide {
   padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-control);
   background: var(--subtle); font: var(--caption-type) var(--ui-font); overflow-wrap: anywhere;
@@ -339,4 +339,26 @@ dialog textarea, dialog input, dialog select { min-width: 0; }
   .topbar-actions { gap: .35rem; }
   .audio-heading { gap: .48rem; }
   .tabs { padding-inline: .65rem; }
+}
+
+@media (max-height: 520px) {
+  #empty, #library-loading { min-height: 0; padding-block: 24px; }
+  #detail { padding-block: 16px 24px; }
+  .meeting-header { margin-bottom: 12px; }
+  dialog {
+    max-height: calc(100dvh - 16px); overflow: auto; overscroll-behavior: contain;
+    padding: 12px 16px; scroll-padding-block-end: 4.5rem;
+  }
+  .dialog-actions {
+    position: sticky; bottom: 0; margin-top: 4px; padding-block: 8px 2px;
+    border-top: 1px solid var(--line); background: var(--surface);
+  }
+}
+
+@media (min-width: 656px) and (max-height: 520px) {
+  .library { overflow-y: auto; }
+  .library-header, .library-actions { margin-bottom: 12px; }
+  .library-content { flex: 1 0 auto; }
+  .meeting-list { max-height: min(144px, 28dvh); }
+  .rail-end { padding-top: 6px; }
 }

@@ -8,4 +8,6 @@
 /.env
 /.env.*
 *.sqlite3*
+model-credentials.key
+.model-credentials-*
 *.syso

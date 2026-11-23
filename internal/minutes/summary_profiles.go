@@ -30,3 +30,17 @@ func summaryProfile(id string) (SummaryProfile, bool) {
 	}
 	return SummaryProfile{}, false
 }
+
+func (profile SummaryProfile) endpoint(base string) string {
+	if profile.url != "" {
+		return profile.url
+	}
+	switch profile.ID {
+	case "ollama":
+		return endpoint(base, "/api/chat")
+	case "claude":
+		return endpoint(base, "/v1/messages")
+	default:
+		return endpoint(base, "/v1/chat/completions")
+	}
+}

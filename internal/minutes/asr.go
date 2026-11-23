@@ -27,10 +27,16 @@ type ASRProfile struct {
 }
 
 var asrProfiles = []ASRProfile{
-	{ID: "oddasr", Name: "OddASR", URL: "http://127.0.0.1:9002", Model: "whisper-1"},
 	{ID: "openai", Name: "OpenAI 兼容", URL: "https://api.openai.com", Model: "gpt-transcribe"},
 	{ID: "groq", Name: "Groq", URL: "https://api.groq.com/openai", Model: "whisper-large-v3-turbo"},
 	{ID: "sherpa", Name: "本机转录（离线）", Model: "sensevoice", Local: true},
+}
+
+const legacyASRProvider = "oddasr"
+
+// isLegacyASR also recognizes configurations saved before the provider field existed.
+func isLegacyASR(provider string) bool {
+	return provider == "" || provider == legacyASRProvider
 }
 
 // transcriptionSource exposes only the model identity from the completed job's settings snapshot.
@@ -44,14 +50,17 @@ func transcriptionSource(snapshot string) *TranscriptionSource {
 
 // sourceForSettings names the configured backend without exposing connection details.
 func sourceForSettings(config Settings) *TranscriptionSource {
-	if strings.TrimSpace(config.ASRModel) == "" {
+	model := strings.Join(strings.Fields(config.ASRModel), " ")
+	if model == "" {
 		return nil
 	}
 	source := &TranscriptionSource{Provider: config.ASRProvider, Model: config.ASRModel}
-	if source.Provider == "" {
-		source.Provider = "oddasr"
+	if isLegacyASR(source.Provider) {
+		source.Provider = legacyASRProvider
+		source.Label = "OddASR · " + model
+		return source
 	}
-	provider, model := source.Provider, strings.Join(strings.Fields(source.Model), " ")
+	provider := source.Provider
 	for _, profile := range asrProfiles {
 		if profile.ID == provider {
 			provider = profile.Name
@@ -82,23 +91,28 @@ type asrPlan struct {
 
 // transcriptionPlan isolates provider-specific output formats and credentials from the job worker.
 func (p *HTTPAI) transcriptionPlan(c Settings, language string) (asrPlan, error) {
-	plan := asrPlan{url: endpoint(c.ASRURL, "/v1/audio/transcriptions"), format: "verbose_json", model: c.ASRModel, language: language, words: true}
+	plan := asrPlan{
+		url:      c.asrEndpoint(),
+		format:   "verbose_json",
+		model:    c.ASRModel,
+		language: language,
+		words:    true,
+		limit:    24_000_000,
+	}
 	switch c.ASRProvider {
-	case "", "oddasr":
-		plan.key = p.ASRKey
 	case "openai":
-		plan.key = p.ASRKeys["openai"]
-		plan.limit = 24_000_000
 		if c.ASRModel == "gpt-4o-transcribe-diarize" {
 			plan.format, plan.words = "diarized_json", false
 		} else if strings.HasPrefix(c.ASRModel, "gpt-") {
 			plan.format, plan.words = "json", false
 		}
 	case "groq":
-		plan.key = p.ASRKeys["groq"]
-		plan.limit = 24_000_000
 	default:
 		return plan, errors.New("不支持的转录服务")
+	}
+	plan.key = c.asrKey
+	if plan.key == "" {
+		plan.key = p.ASRKeys[c.ASRProvider]
 	}
 	return plan, nil
 }
@@ -121,7 +135,7 @@ func (p *HTTPAI) Transcribe(ctx context.Context, c Settings, path, language stri
 	if err != nil {
 		return nil, err
 	}
-	if plan.limit > 0 && info.Size() > plan.limit {
+	if info.Size() > plan.limit {
 		return transcribeLongWAV(ctx, plan, f, info.Size())
 	}
 	return requestASR(ctx, plan, filepath.Base(path), f)

@@ -63,6 +63,7 @@ func call(t *testing.T, h http.Handler, method, path string, body any, want int)
 		reader = bytes.NewReader(raw)
 	}
 	req := httptest.NewRequest(method, "http://127.0.0.1"+path, reader)
+	req.RemoteAddr = "127.0.0.1:55000"
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

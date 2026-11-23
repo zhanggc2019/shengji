@@ -3,11 +3,13 @@ Unicode true
 !define REQUEST_EXECUTION_LEVEL "user"
 !define PRODUCT_EXECUTABLE "Shengji.exe"
 !include "wails_tools.nsh"
+!include "FileFunc.nsh"
 !include "MUI2.nsh"
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "${ODDMINUTES_INSTALLER}"
 InstallDir "$LOCALAPPDATA\Programs\OddMeta\Shengji"
+InstallDirRegKey HKCU "Software\OddMeta\Shengji" "InstallDir"
 ManifestDPIAware true
 VIProductVersion "${INFO_PRODUCTVERSION}.0"
 VIAddVersionKey "CompanyName" "${INFO_COMPANYNAME}"
@@ -15,6 +17,7 @@ VIAddVersionKey "ProductName" "${INFO_PRODUCTNAME}"
 VIAddVersionKey "LegalCopyright" "${INFO_COPYRIGHT}"
 VIAddVersionKey "FileDescription" "声记 Windows 安装程序"
 VIAddVersionKey "FileVersion" "${INFO_PRODUCTVERSION}"
+VIAddVersionKey "ProductVersion" "${INFO_PRODUCTVERSION}"
 !define MUI_ICON "oddminutes.ico"
 !define MUI_UNICON "oddminutes.ico"
 
@@ -28,6 +31,18 @@ VIAddVersionKey "FileVersion" "${INFO_PRODUCTVERSION}"
 ; Verify CPU compatibility using the generated Wails packaging helper.
 Function .onInit
   !insertmacro wails.checkArchitecture
+  ${GetParameters} $0
+  ${GetOptions} "$0" "/SHENGJI_PID=" $1
+  IfErrors ready
+  ; Wait for the existing instance to flush the library and release the executable.
+  System::Call 'kernel32::OpenProcess(i 0x00100000, i 0, i r1) p .r2'
+  StrCmp $2 0 ready
+  System::Call 'kernel32::WaitForSingleObject(p r2, i 30000) i .r3'
+  System::Call 'kernel32::CloseHandle(p r2)'
+  StrCmp $3 0 ready
+  MessageBox MB_OK|MB_ICONSTOP "声记尚未退出。请从托盘退出声记后重新安装。"
+  Abort
+ready:
 FunctionEnd
 
 Section
@@ -47,6 +62,7 @@ Section
   !endif
   CreateShortcut "$SMPROGRAMS\声记.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
   !insertmacro wails.writeUninstaller
+  WriteRegStr HKCU "Software\OddMeta\Shengji" "InstallDir" "$INSTDIR"
 SectionEnd
 
 Section "Uninstall"
@@ -61,5 +77,9 @@ Section "Uninstall"
   Delete "$INSTDIR\sherpa\ONNX-Runtime-ThirdPartyNotices.txt"
   RMDir "$INSTDIR\sherpa"
   !insertmacro wails.deleteUninstaller
+  ReadRegStr $0 HKCU "Software\OddMeta\Shengji" "InstallDir"
+  StrCmp $0 "$INSTDIR" 0 +2
+  DeleteRegValue HKCU "Software\OddMeta\Shengji" "InstallDir"
+  DeleteRegKey /ifempty HKCU "Software\OddMeta\Shengji"
   RMDir "$INSTDIR"
 SectionEnd

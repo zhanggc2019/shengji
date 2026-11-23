@@ -209,11 +209,23 @@
       </div>
       <label id="asr-model-dir-label" for="asr-model-dir" hidden>模型包目录</label>
       <input id="asr-model-dir" name="asr_model_dir" placeholder="下载模型后填写文件夹" hidden>
+      <div id="asr-key-field" class="model-key-field" hidden>
+        <label for="asr-api-key">转录 API Key</label>
+        <input id="asr-api-key" name="asr_api_key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" placeholder="填写转录服务的 API Key" aria-describedby="asr-key-help">
+        <p id="asr-key-help" class="field-hint" role="status"></p>
+        <label id="asr-clear-key-label" class="checkbox" hidden><input id="asr-clear-key" type="checkbox">清除已保存的转录密钥</label>
+      </div>
       <label for="provider">摘要服务</label><select id="provider" name="provider"></select>
       <label id="llm-url-label" for="llm-url">摘要服务地址</label><input id="llm-url" name="llm_url" type="url" required>
       <label id="llm-model-label" for="llm-model">摘要模型</label><input id="llm-model" name="llm_model" required>
-      <select id="llm-preset-model" aria-describedby="llm-key-help" hidden disabled></select>
-      <p id="llm-key-help" class="field-hint" hidden></p>
+      <select id="llm-preset-model" hidden disabled></select>
+      <div id="llm-key-field" class="model-key-field" hidden>
+        <label for="llm-api-key">摘要 API Key</label>
+        <input id="llm-api-key" name="llm_api_key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" placeholder="填写摘要服务的 API Key" aria-describedby="llm-key-help">
+        <p id="llm-key-help" class="field-hint" role="status"></p>
+        <label id="llm-clear-key-label" class="checkbox" hidden><input id="llm-clear-key" type="checkbox">清除已保存的摘要密钥</label>
+      </div>
+      <p id="credentials-notice" class="field-hint" hidden>请在运行声记的电脑上打开本机工作台填写 API Key。</p>
       <div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary">保存</button></div>
     </form>
   </dialog>

@@ -30,6 +30,9 @@ var (
 
 var expect = pw.NewPlaywrightAssertions(25_000).Locator
 
+const fixtureASRKey = "browser-asr-key"
+const fixtureSummaryKey = "browser-summary-key"
+
 // TestBrowserSmoke exercises the same workspace through Edge and a second Edge or WebView2 client.
 func TestBrowserSmoke(t *testing.T) {
 	if *binaryPath == "" {
@@ -99,6 +102,7 @@ func TestBrowserSmoke(t *testing.T) {
 		saveScreenshot(t, page, *darkShot)
 	}
 	checkNarrowWorkspace(t, edge, url)
+	checkShortWorkspace(t, edge, url)
 	checkBatchImport(t, page, audio, video)
 	checkFFmpegGuide(t, page, audio, video)
 	checkPureTranscript(t, page, audio)
@@ -123,7 +127,8 @@ func providerDouble(w http.ResponseWriter, r *http.Request) {
 		}
 		defer r.MultipartForm.RemoveAll()
 		marks := r.MultipartForm.Value["timestamp_granularities[]"]
-		if r.FormValue("response_format") != "verbose_json" || len(marks) != 2 || len(r.MultipartForm.File["file"]) != 1 {
+		if r.Header.Get("Authorization") != "Bearer "+fixtureASRKey ||
+			r.FormValue("response_format") != "verbose_json" || len(marks) != 2 || len(r.MultipartForm.File["file"]) != 1 {
 			http.Error(w, "invalid ASR fixture request", http.StatusBadRequest)
 			return
 		}
@@ -138,7 +143,8 @@ func providerDouble(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Messages []struct{ Content string } `json:"messages"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil || len(input.Messages) == 0 || !strings.Contains(input.Messages[0].Content, "负责人") {
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil || r.Header.Get("Authorization") != "Bearer "+fixtureSummaryKey ||
+			len(input.Messages) == 0 || !strings.Contains(input.Messages[0].Content, "负责人") {
 			http.Error(w, "invalid summary fixture request", http.StatusBadRequest)
 			return
 		}
@@ -176,7 +182,7 @@ func startApp(t *testing.T, binary string) (string, string) {
 	address := loopbackAddress(t)
 	args := []string{"--listen", address, "--data-dir", filepath.Join(root, "library")}
 	var cdp string
-	env := append(os.Environ(), "SHENGJI_ASR_API_KEY=", "SHENGJI_LLM_API_KEY=")
+	env := append(os.Environ(), "SHENGJI_ASR_OPENAI_KEY=", "SHENGJI_LLM_API_KEY=")
 	if *desktopRun {
 		debug := loopbackAddress(t)
 		cdp = "http://" + debug

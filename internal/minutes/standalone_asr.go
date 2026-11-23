@@ -118,6 +118,11 @@ func (a *App) transcribe(ctx context.Context, config Settings, filename, languag
 	if err := ctx.Err(); err != nil {
 		return nil, 0, err
 	}
+	key, err := a.credential(config.asrCredentialScope())
+	if err != nil {
+		return nil, 0, err
+	}
+	config.asrKey = key
 	started := time.Now()
 	segments, err := a.ai.Transcribe(ctx, config, filename, language)
 	return segments, time.Since(started).Milliseconds(), err

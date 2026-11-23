@@ -99,7 +99,6 @@ func run(options Options) error {
 		return errors.New("服务地址须使用回环地址或局域网地址")
 	}
 	app, err := minutes.Open(*root, minutes.WindowsCapture, &minutes.HTTPAI{
-		ASRKey:    configenv.Get("SHENGJI_ASR_API_KEY"),
 		ASRKeys:   map[string]string{"openai": configenv.Get("SHENGJI_ASR_OPENAI_KEY"), "groq": configenv.Get("SHENGJI_ASR_GROQ_KEY")},
 		NativeASR: configenv.Get("SHENGJI_SHERPA_EXE"),
 		LLMKey:    configenv.Get("SHENGJI_LLM_API_KEY"),

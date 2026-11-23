@@ -49,7 +49,7 @@ func TestHTTPProviders(t *testing.T) {
 	if err := os.WriteFile(path, wavHeader(0), 0600); err != nil {
 		t.Fatal(err)
 	}
-	config := Settings{ASRURL: server.URL + "/v1", ASRModel: "test-model", LLMURL: server.URL, LLMModel: "test-model", Provider: "openai"}
+	config := Settings{ASRProvider: "openai", ASRURL: server.URL + "/v1", ASRModel: "test-model", LLMURL: server.URL, LLMModel: "test-model", Provider: "openai"}
 	segments, err := p.Transcribe(context.Background(), config, path, "zh")
 	if err != nil || len(segments) != 1 || segments[0].Speaker != "2" || len(segments[0].Words) != 1 {
 		t.Fatalf("%+v %v", segments, err)
@@ -83,7 +83,7 @@ func TestSummaryPresets(t *testing.T) {
 			config.LLMURL = "http://other.example/v1"
 			client := &HTTPAI{LLMKey: "legacy-key"}
 			t.Setenv(vendor.env, "")
-			if _, err := client.summaryRequest(t.Context(), config, "摘要"); err == nil || !strings.Contains(err.Error(), vendor.env) {
+			if _, err := client.summaryRequest(t.Context(), config, "摘要"); err == nil || !strings.Contains(err.Error(), "模型设置") {
 				t.Fatalf("expected provider key setup error: %v", err)
 			}
 			t.Setenv(vendor.env, "vendor-key")
@@ -98,6 +98,15 @@ func TestSummaryPresets(t *testing.T) {
 			}
 			if req.URL.String() != vendor.url || req.Header.Get("Authorization") != "Bearer vendor-key" || payload["model"] != config.LLMModel {
 				t.Fatalf("wrong provider URL or model: %s %v", req.URL, payload["model"])
+			}
+			config.summaryKey = "saved-key"
+			saved, err := client.summaryRequest(t.Context(), config, "摘要")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer saved.Body.Close()
+			if saved.Header.Get("Authorization") != "Bearer saved-key" {
+				t.Fatal("provider did not use the saved key")
 			}
 		})
 	}

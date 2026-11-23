@@ -23,7 +23,6 @@ const maxProviderResponse = 24 << 20
 
 // HTTPAI uses the providers' HTTP interfaces directly without a model SDK.
 type HTTPAI struct {
-	ASRKey    string
 	ASRKeys   map[string]string
 	NativeASR string
 	LLMKey    string
@@ -55,7 +54,7 @@ func validateSettings(c Settings) error {
 		addresses = append(addresses, c.LLMURL)
 	}
 	switch c.ASRProvider {
-	case "", "oddasr", "openai", "groq":
+	case "openai", "groq":
 		addresses = append(addresses, c.ASRURL)
 	case "sherpa":
 		if c.ASRModel != "sensevoice" && c.ASRModel != "paraformer" {
@@ -230,38 +229,37 @@ func (p *HTTPAI) summaryRequest(ctx context.Context, c Settings, prompt string) 
 	if !ok {
 		return nil, errors.New("未知摘要服务")
 	}
-	path := "/v1/chat/completions"
-	key := p.LLMKey
+	key := c.summaryKey
+	if key == "" {
+		if profile.KeyEnv == "" {
+			key = p.LLMKey
+		} else {
+			key = strings.TrimSpace(configenv.Get(profile.KeyEnv))
+			if key == "" {
+				return nil, fmt.Errorf("请在「模型设置」填写 %s 的 API Key", profile.Name)
+			}
+		}
+	}
 	payload := map[string]any{"model": c.LLMModel, "messages": []map[string]string{{"role": "user", "content": prompt}}}
 	switch c.Provider {
 	case "ollama":
-		path = "/api/chat"
 		payload["stream"] = false
 	case "claude":
-		path = "/v1/messages"
 		payload["max_tokens"] = 2048
-	}
-	requestURL := endpoint(c.LLMURL, path)
-	if profile.url != "" {
-		requestURL = profile.url
-		key = strings.TrimSpace(configenv.Get(profile.KeyEnv))
-		if key == "" {
-			return nil, fmt.Errorf("请在运行声记的电脑上配置 %s 的 API Key（%s）并重启服务", profile.Name, profile.KeyEnv)
-		}
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", requestURL, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", profile.endpoint(c.LLMURL), bytes.NewReader(data))
 	if err != nil {
 		return nil, errors.New("摘要服务地址无效")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Provider == "claude" {
 		req.Header.Set("anthropic-version", "2023-06-01")
-		if p.LLMKey != "" {
-			req.Header.Set("x-api-key", p.LLMKey)
+		if key != "" {
+			req.Header.Set("x-api-key", key)
 		}
 	} else {
 		bearer(req, key)

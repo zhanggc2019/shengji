@@ -17,10 +17,14 @@ func configureProviders(t *testing.T, page pw.Page, providerURL string) {
 	provider := dialog.GetByLabel("转录服务", pw.LocatorGetByLabelOptions{Exact: pw.Bool(true)})
 	selectValue(t, provider, "sherpa")
 	must(t, expect(dialog.GetByLabel("模型包目录")).ToBeVisible())
+	must(t, expect(dialog.GetByLabel("转录 API Key")).ToBeHidden())
 	must(t, expect(dialog.GetByLabel("转录模型", pw.LocatorGetByLabelOptions{Exact: pw.Bool(true)})).ToHaveValue("sensevoice"))
-	selectValue(t, provider, "oddasr")
+	selectValue(t, provider, "openai")
 	must(t, dialog.GetByLabel("转录服务地址").Fill(providerURL))
+	must(t, dialog.GetByLabel("转录模型", pw.LocatorGetByLabelOptions{Exact: pw.Bool(true)}).Fill("whisper-1"))
+	must(t, dialog.GetByLabel("转录 API Key").Fill(fixtureASRKey))
 	must(t, dialog.GetByLabel("摘要服务地址").Fill(providerURL))
+	must(t, dialog.GetByLabel("摘要 API Key").Fill(fixtureSummaryKey))
 	must(t, role(dialog, "button", "保存", true).Click())
 	must(t, expect(dialog).ToBeHidden())
 }
@@ -34,7 +38,7 @@ func checkSharedWorkspace(t *testing.T, page, peer pw.Page, url, providerURL str
 		must(t, expect(tab.Locator("#active-asr")).ToContainText("本机离线 · SenseVoice"))
 	}
 	configureProviders(t, page, providerURL)
-	must(t, expect(peer.Locator("#active-asr")).ToContainText("OddASR · whisper-1"))
+	must(t, expect(peer.Locator("#active-asr")).ToContainText("OpenAI 兼容 · whisper-1"))
 
 	root, dialog := page.Locator("body"), page.Locator("#import-dialog")
 	must(t, role(root, "button", "导入音视频", true).Click())
@@ -138,6 +142,40 @@ func checkNarrowWorkspace(t *testing.T, browser pw.Browser, url string) {
 	saveScreenshot(t, page, *mobileShot)
 	must(t, page.SetViewportSize(320, 720))
 	checkPageCondition(t, page, noOverflow)
+}
+
+// checkShortWorkspace covers the usable viewport of a small or highly scaled desktop window.
+func checkShortWorkspace(t *testing.T, browser pw.Browser, url string) {
+	page, err := browser.NewPage(pw.BrowserNewPageOptions{Viewport: &pw.Size{Width: 760, Height: 300}})
+	must(t, err)
+	defer page.Close()
+	_, err = page.Goto(url, pw.PageGotoOptions{WaitUntil: pw.WaitUntilStateDomcontentloaded})
+	must(t, err)
+	root := page.Locator("body")
+	must(t, expect(role(root, "heading", "另一场会议")).ToBeVisible())
+	settings := role(root, "button", "模型设置", true)
+	must(t, settings.ScrollIntoViewIfNeeded())
+	must(t, expect(settings).ToBeInViewport(pw.LocatorAssertionsToBeInViewportOptions{Ratio: pw.Float(1)}))
+
+	for _, width := range []int{760, 360} {
+		must(t, page.SetViewportSize(width, 300))
+		if width == 360 {
+			must(t, role(root, "button", "会议库", true).Click())
+		}
+		dialog := openSettings(t, page)
+		selectValue(t, dialog.GetByLabel("转录服务", pw.LocatorGetByLabelOptions{Exact: pw.Bool(true)}), "sherpa")
+		checkPageCondition(t, page, `(() => {
+			const dialog = document.querySelector('#settings-dialog');
+			const bounds = dialog.getBoundingClientRect();
+			return bounds.top >= 0 && bounds.bottom <= innerHeight && dialog.scrollHeight > dialog.clientHeight;
+		})()`)
+		save := role(dialog, "button", "保存", true)
+		must(t, expect(save).ToBeInViewport(pw.LocatorAssertionsToBeInViewportOptions{Ratio: pw.Float(1)}))
+		must(t, dialog.GetByLabel("模型包目录").ScrollIntoViewIfNeeded())
+		must(t, expect(save).ToBeInViewport(pw.LocatorAssertionsToBeInViewportOptions{Ratio: pw.Float(1)}))
+		must(t, role(dialog, "button", "取消", true).Click())
+		checkPageCondition(t, page, "document.documentElement.scrollWidth <= window.innerWidth")
+	}
 }
 
 // checkPageCondition asserts a browser-computed layout relationship.

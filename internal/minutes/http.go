@@ -479,25 +479,31 @@ func serveASRProfiles(w http.ResponseWriter, r *http.Request) { respond(w, 200, 
 // serveSummaryProfiles lists built-in summary providers without exposing credentials.
 func serveSummaryProfiles(w http.ResponseWriter, _ *http.Request) { respond(w, 200, summaryProfiles) }
 
-// getSettings exposes only the model endpoints and names.
+// getSettings exposes model settings and credential status without returning secrets.
 func (a *App) getSettings(w http.ResponseWriter, r *http.Request) {
 	config, err := a.settings()
 	if err != nil {
 		serverFailure(w, err)
 		return
 	}
-	respond(w, 200, config)
+	a.respondSettings(w, r, config)
 }
 
 // putSettings validates model connection details before use by the worker.
 func (a *App) putSettings(w http.ResponseWriter, r *http.Request) {
-	var config Settings
-	if !readJSON(w, r, &config) {
+	var input struct {
+		Settings
+		ASRKey *string `json:"asr_api_key"`
+		LLMKey *string `json:"llm_api_key"`
+	}
+	if !readJSON(w, r, &input) {
 		return
 	}
-	if config.ASRProvider == "" {
-		config.ASRProvider = "oddasr"
+	if (input.ASRKey != nil || input.LLMKey != nil) && !canManageCredentials(r) {
+		fail(w, 403, "请在运行声记的电脑上打开本机工作台修改 API Key")
+		return
 	}
+	config := input.Settings
 	if profile, ok := summaryProfile(config.Provider); ok && profile.url != "" {
 		config.LLMURL = ""
 	}
@@ -505,12 +511,48 @@ func (a *App) putSettings(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	if err := a.saveSettings(config); err != nil {
+	var changes []credentialChange
+	for _, field := range []struct {
+		scope string
+		input *string
+	}{
+		{config.asrCredentialScope(), input.ASRKey},
+		{config.summaryCredentialScope(), input.LLMKey},
+	} {
+		if field.input == nil {
+			continue
+		}
+		key := strings.TrimSpace(*field.input)
+		if field.scope == "" || !validAPIKey(key) {
+			fail(w, 400, "该服务的 API Key 无效")
+			return
+		}
+		changes = append(changes, credentialChange{scope: field.scope, key: key})
+	}
+	if err := a.saveSettings(config, changes...); err != nil {
 		serverFailure(w, err)
 		return
 	}
 	a.notify()
-	respond(w, 200, config)
+	a.respondSettings(w, r, config)
+}
+
+func (a *App) respondSettings(w http.ResponseWriter, r *http.Request, config Settings) {
+	if r.URL.Query().Get("credentials") != "1" {
+		respond(w, 200, config)
+		return
+	}
+	status := credentialStatus{CanManage: canManageCredentials(r)}
+	if status.CanManage {
+		if err := status.read(a.db, config); err != nil {
+			serverFailure(w, err)
+			return
+		}
+	}
+	respond(w, 200, struct {
+		Settings
+		Credentials credentialStatus `json:"credentials"`
+	}{config, status})
 }
 
 type browserEvent struct {

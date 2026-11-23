@@ -12,7 +12,7 @@ go run ./cmd/shengji
 
 仅在浏览器或 Agent 中使用时运行 `go run ./cmd/shengji-server`。Server 版默认监听 `127.0.0.1:9011`，本机打开 `http://127.0.0.1:9011`。如需向局域网开放工作台、ASR API 和 MCP，传入 `--listen 0.0.0.0:9011`。桌面版默认监听 `0.0.0.0:9011`，可通过托盘菜单「在浏览器中打开」。
 
-重复启动同一会议库的新版桌面程序时，会唤醒已有窗口。升级时可通过托盘「退出声记」关闭旧版后再打开新版。默认端口已占用时自动使用可用端口，以启动输出或托盘打开的地址为准。显式传入 `--listen` 时使用指定端口。
+重复启动同一会议库的桌面程序时，会唤醒已有窗口。默认端口已占用时自动使用可用端口，以启动输出或托盘打开的地址为准。显式传入 `--listen` 时使用指定端口。
 
 局域网客户端可读写同一个会议库，并可控制服务主机的录音。只在本机使用时以 `--listen 127.0.0.1:9011` 启动。可用 `--data-dir <目录>` 指定库，默认目录为 `%LOCALAPPDATA%\OddMeta\OddMinutes Go`，升级与卸载保留该目录。工作台默认浅色，可通过右上角切换深色，选择保存在各自的浏览器或 WebView 配置中。
 
@@ -26,8 +26,15 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 
 - `bin/Shengji-amd64-installer.exe` 安装桌面版，包含 WebView2 引导器。
 - `bin/Shengji-amd64-offline-installer.exe` 另包含 Sherpa-ONNX 本机工作进程、原生库和许可文本。
+- `bin/Shengji-arm64-installer.exe` 安装 Windows ARM64 桌面版，可用 `-Installer -Architecture arm64` 构建。
 - `bin/Shengji-server-amd64.exe` 是浏览器服务独立构建。
 - Windows 桌面窗口需要 WebView2。录音、回听和常见音频文件导入无需 Python、Node.js 或 FFmpeg。安装包当前未签名。
+
+### GitHub 发布与桌面更新
+
+GitHub Actions 在 PR 中运行 Go 测试和静态检查，推送到 `main` 后构建三种 Windows 安装包并发布到 [GitHub Releases](https://github.com/zhanggc2019/shengji/releases)。没有稳定版本标签时从 `v0.0.1` 开始，随后每次发布增加补丁号。也可以在 `main` 手动运行工作流。最新发布已包含的提交会跳过重复打包。本地打包可以用 `-Version 0.0.2` 指定版本，用 `-UpdateRepository owner/repo` 指定公开发布仓库。
+
+安装版启动后会检查更新，持续运行时每 6 小时重新检查。托盘菜单的「检查更新」显示当前版本，也可以手动查询。更新会选择相同架构和安装类型的包，下载后核对文件大小和 GitHub 提供的 SHA-256。确认「退出并安装」后，应用会保存正在录制的音频并退出，安装程序等旧进程结束再替换文件。工作台中尚未保存的文字请先保存。离线版检查和下载更新时需要连接 GitHub。源码开发版和独立 Server 版可通过重新构建或下载新版本更新。
 
 ## 录音、转录与纪要
 
@@ -39,11 +46,10 @@ Windows 版采集默认麦克风以及可选的默认输出设备回环。将音
 
 Windows 下载对应架构的静态版并解压，将 `bin\ffmpeg.exe` 放到声记程序所在目录。也可将 FFmpeg 的 `bin` 目录加入用户 `Path`，或设置 `SHENGJI_FFMPEG` 指向可执行文件，这两种方式需要重启声记服务。Linux 和 macOS 可使用对应平台的包管理器安装。
 
-新建会议库默认选择本机 SenseVoice，左下角显示当前选用的转录服务和模型。安装本机组件并下载模型后，在「模型设置」填写模型包目录。已有库继续使用保存的配置。任务保存提交时的模型配置，重启后重新排队，失败时保留原有转录或纪要。
+新建会议库默认选择本机 SenseVoice，左下角显示当前选用的转录服务和模型。安装本机组件并下载模型后，在「模型设置」填写模型包目录。已有库继续使用受支持的配置。旧 OddASR 设置会回退到本机 SenseVoice，历史转录及其模型来源仍可查看。已排队的任务保留提交时的模型配置，引用已移除服务的转录任务需重新提交。生成失败时保留已有转录或纪要。
 
 | 转录服务 | 模型设置 |
 |---|---|
-| OddASR | 默认 `http://127.0.0.1:9002`，模型 `whisper-1`，兼容 `verbose_json` 时间戳 |
 | OpenAI 兼容 | 默认 `gpt-transcribe`。文本模型按其 JSON 能力展示，`whisper-1` 使用字词时间戳，`gpt-4o-transcribe-diarize` 使用说话人片段格式 |
 | Groq | 默认 `whisper-large-v3-turbo`，请求片段和词级时间戳 |
 | 本机转录（离线） | 粤语、日语或韩语录音可优先选 SenseVoice。以普通话、河南话、天津话或四川话为主的录音可优先选 Paraformer |
@@ -86,15 +92,17 @@ Server 使用 `--listen 0.0.0.0:9011` 或明确的局域网地址启动时，两
 
 ## AI 纪要
 
-AI 纪要支持 Ollama、OpenAI 兼容、Claude、DeepSeek、智谱和硅基流动。对后三个预设，在运行声记的主机配置对应 API Key 并重启服务。然后在「模型设置」选择厂商和模型即可。
+AI 纪要支持 Ollama、OpenAI 兼容、Claude、DeepSeek、智谱和硅基流动。在「模型设置」选择服务和模型，填写「摘要 API Key」后保存即可使用。云端转录的密钥填在同一窗口的「转录 API Key」。本机 Sherpa 无需密钥，本机 Ollama 通常也可留空。
 
-| 摘要服务 | API Key 环境变量 | 文档 |
-|---|---|---|
-| DeepSeek | `SHENGJI_DEEPSEEK_API_KEY` | [模型与接口](https://api-docs.deepseek.com/quick_start/pricing/) |
-| 智谱 | `SHENGJI_ZHIPU_API_KEY` | [快速开始](https://docs.bigmodel.cn/cn/guide/start/quick-start) |
-| 硅基流动 | `SHENGJI_SILICONFLOW_API_KEY` | [快速上手](https://docs.siliconflow.cn/docs/userguide/quickstart) |
+| 摘要服务 | 文档 |
+|---|---|
+| DeepSeek | [模型与接口](https://api-docs.deepseek.com/quick_start/pricing/) |
+| 智谱 | [快速开始](https://docs.bigmodel.cn/cn/guide/start/quick-start) |
+| 硅基流动 | [快速上手](https://docs.siliconflow.cn/docs/userguide/quickstart) |
 
-自定义摘要服务使用 `SHENGJI_LLM_API_KEY`。转录服务使用 `SHENGJI_ASR_API_KEY`（OddASR）、`SHENGJI_ASR_OPENAI_KEY` 或 `SHENGJI_ASR_GROQ_KEY`。升级时，未设置新变量的配置会回读同名的旧前缀 `ODDMINUTES_`。
+密钥按服务和接口地址加密保存。重新打开设置时会显示保存状态，留空可保留原密钥。密钥可以在桌面端或同一台电脑的本机工作台填写、替换或清除。Windows 将密钥绑定到运行声记的用户账户，迁移会议库后如遇到解密提示，请重新填写密钥。
+
+已部署的环境变量配置仍可作为备用。DeepSeek、智谱、硅基流动分别对应 `SHENGJI_DEEPSEEK_API_KEY`、`SHENGJI_ZHIPU_API_KEY`、`SHENGJI_SILICONFLOW_API_KEY`。其他摘要服务对应 `SHENGJI_LLM_API_KEY`。云端转录对应 `SHENGJI_ASR_OPENAI_KEY` 或 `SHENGJI_ASR_GROQ_KEY`。声记仍兼容同名的旧前缀 `ODDMINUTES_`。
 
 ## 测试
 

@@ -112,7 +112,8 @@ func TestSettingsAndMetadata(t *testing.T) {
 	defer a.Close()
 	h := a.Handler(nil, false)
 	var profiles []ASRProfile
-	if err := json.Unmarshal(call(t, h, "GET", "/api/asr/profiles", nil, 200), &profiles); err != nil || len(profiles) != 4 || !profiles[3].Local {
+	if err := json.Unmarshal(call(t, h, "GET", "/api/asr/profiles", nil, 200), &profiles); err != nil || len(profiles) != 3 ||
+		profiles[0].ID != "openai" || profiles[1].ID != "groq" || profiles[2].ID != "sherpa" || !profiles[2].Local {
 		t.Fatalf("ASR profiles: %+v %v", profiles, err)
 	}
 	crossSite := httptest.NewRequest("GET", "http://localhost/api/health", nil)
@@ -131,6 +132,9 @@ func TestSettingsAndMetadata(t *testing.T) {
 		t.Fatal(string(data))
 	}
 	settings.Provider = "unknown"
+	call(t, h, "PUT", "/api/settings", settings, 400)
+	settings = defaultSettings
+	settings.ASRProvider = legacyASRProvider
 	call(t, h, "PUT", "/api/settings", settings, 400)
 	settings = defaultSettings
 	settings.LLMModel = ""
@@ -320,7 +324,7 @@ func TestQueuedProviderSurvivesRestart(t *testing.T) {
 	}
 }
 
-// TestUpgradeSettingsV1 verifies older saved settings and queued jobs migrate in-place.
+// TestUpgradeSettingsV1 verifies older saved settings and schema can still be read.
 func TestUpgradeSettingsV1(t *testing.T) {
 	root := t.TempDir()
 	a, err := Open(root, nil, nil)
@@ -338,7 +342,7 @@ func TestUpgradeSettingsV1(t *testing.T) {
 		old.Close()
 		t.Fatal(err)
 	}
-	if _, err = old.Exec("INSERT INTO settings(id,value) VALUES(1,?)", "{\"asr_url\":\"http://localhost:9002\",\"asr_model\":\"whisper-1\"}"); err != nil {
+	if _, err = old.Exec("INSERT INTO settings(id,value) VALUES(1,?)", `{"asr_url":"http://localhost:9002","asr_model":"whisper-1","llm_model":"old-model"}`); err != nil {
 		old.Close()
 		t.Fatal(err)
 	}
@@ -351,11 +355,62 @@ func TestUpgradeSettingsV1(t *testing.T) {
 	}
 	defer a.Close()
 	cfg, err := a.settings()
-	if err != nil || cfg.ASRProvider != "oddasr" || cfg.ASRURL != "http://localhost:9002" {
+	if err != nil || cfg.ASRProvider != "sherpa" || cfg.ASRURL != "" || cfg.ASRModel != "sensevoice" || cfg.LLMModel != "old-model" {
 		t.Fatalf("v1 settings: %+v %v", cfg, err)
 	}
 	var version int
 	if err = a.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
 		t.Fatalf("schema version: %d, %v", version, err)
+	}
+}
+
+func TestRetiredASRSettingsAndJobs(t *testing.T) {
+	root := t.TempDir()
+	observed := make(chan Settings, 1)
+	a, err := Open(root, nil, observeAI{seen: observed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	legacy := defaultSettings
+	legacy.ASRProvider, legacy.ASRModel, legacy.ASRURL = legacyASRProvider, "whisper-1", "http://localhost:9002"
+	legacy.LLMModel = "existing-summary-model"
+	if err = a.saveSettings(legacy); err != nil {
+		t.Fatal(err)
+	}
+	id := newID()
+	if _, err = a.createMeeting(id, "旧会议", id+".wav", modeMeeting, 1); err != nil {
+		t.Fatal(err)
+	}
+	const segments = `[{"text":"旧转录","start":0,"end":1}]`
+	if _, err = a.db.Exec("UPDATE meetings SET segments=? WHERE id=?", segments, id); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.db.Exec(`INSERT INTO jobs(meeting_id,kind,state,config) VALUES
+		(?, 'transcription', 'completed', ?), (?, 'transcription', 'running', ?)`, id, string(snapshot), id, string(snapshot)); err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+
+	reopened, err := Open(root, nil, observeAI{seen: observed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	cfg, err := reopened.settings()
+	if err != nil || cfg.ASRProvider != "sherpa" || cfg.ASRModel != "sensevoice" || cfg.ASRURL != "" || cfg.LLMModel != legacy.LLMModel {
+		t.Fatalf("migrated settings: %+v, %v", cfg, err)
+	}
+	meeting := waitJob(t, reopened.Handler(nil, false), "/api/meetings/"+id, "failed")
+	if len(observed) != 0 || !strings.Contains(meeting.Jobs[0].Error, "原转录服务已移除") {
+		t.Fatalf("retired job attempted transcription or lost its failure reason: %+v", meeting.Jobs[0])
+	}
+	if len(meeting.Segments) != 1 || meeting.Segments[0].Text != "旧转录" ||
+		meeting.TranscriptionSource == nil || meeting.TranscriptionSource.Label != "OddASR · whisper-1" {
+		t.Fatalf("historical transcript or source changed: %+v", meeting)
 	}
 }

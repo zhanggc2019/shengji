@@ -92,6 +92,8 @@ type Settings struct {
 	LLMURL      string `json:"llm_url"`
 	LLMModel    string `json:"llm_model"`
 	Provider    string `json:"provider"`
+	asrKey      string
+	summaryKey  string
 }
 
 // App owns a database, one recorder, and one persistent job worker.
@@ -127,6 +129,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS jobs_meeting ON jobs(meeting_id, id);
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_one_active ON jobs(meeting_id) WHERE state IN ('queued','running');
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS model_credentials (scope TEXT PRIMARY KEY, secret BLOB NOT NULL);
 
 `
 
@@ -355,23 +358,42 @@ func (a *App) settings() (Settings, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return defaultSettings, nil
 	}
-	settings := defaultSettings
-	// Version 1 configurations with no ASR provider used OddASR.
-	settings.ASRProvider, settings.ASRURL, settings.ASRModel = "oddasr", "http://127.0.0.1:9002", "whisper-1"
-	if err == nil {
-		err = json.Unmarshal([]byte(raw), &settings)
+	if err != nil {
+		return Settings{}, err
 	}
-	return settings, err
+	settings := defaultSettings
+	// A missing provider identifies the original settings format.
+	settings.ASRProvider = ""
+	if err = json.Unmarshal([]byte(raw), &settings); err != nil {
+		return Settings{}, err
+	}
+	if isLegacyASR(settings.ASRProvider) {
+		settings.ASRProvider, settings.ASRModel = defaultSettings.ASRProvider, defaultSettings.ASRModel
+		settings.ASRURL, settings.ASRModelDir = defaultSettings.ASRURL, defaultSettings.ASRModelDir
+	}
+	return settings, nil
 }
 
-// saveSettings writes the validated model configuration.
-func (a *App) saveSettings(config Settings) error {
+// saveSettings publishes the model configuration and any credential changes together.
+func (a *App) saveSettings(config Settings, changes ...credentialChange) error {
 	raw, err := json.Marshal(config)
 	if err != nil {
 		return err
 	}
-	_, err = a.db.Exec("INSERT INTO settings(id,value) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value", string(raw))
-	return err
+	tx, err := a.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec("INSERT INTO settings(id,value) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value", string(raw)); err != nil {
+		return err
+	}
+	for _, change := range changes {
+		if err = a.saveCredential(tx, change); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // notify advances the browser revision and wakes the durable job worker.

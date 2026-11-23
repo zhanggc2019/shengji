@@ -29,7 +29,8 @@ const state = {
   id: "", meeting: null, list: [], query: "", page: 0, revision: -1, listVersion: 0,
   hasMeetings: false,
   recording: {state: "idle"}, busy: false, rename: false, segment: -1, online: false,
-  lastLine: null, lastWord: null, asrProfiles: [], summaryProfiles: [], initialized: false, noteDrafts: new Map(),
+  lastLine: null, lastWord: null, asrProfiles: [], summaryProfiles: [], savedModelSettings: null,
+  initialized: false, noteDrafts: new Map(),
 };
 
 // api keeps the same origin and error semantics in the desktop window and the browser.
@@ -551,10 +552,11 @@ function openSegment(index) {
 // openSettings retrieves the current model configuration without exposing keys.
 async function openSettings() {
   const [config, profiles, summaries] = await Promise.all([
-    api("/api/settings"), api("/api/asr/profiles"), api("/api/summary/profiles"),
+    api("/api/settings?credentials=1"), api("/api/asr/profiles"), api("/api/summary/profiles"),
   ]);
   state.asrProfiles = profiles;
   state.summaryProfiles = summaries;
+  state.savedModelSettings = config;
   $("asr-provider").replaceChildren(...profiles.map((profile) => {
     const option = elem("option", profile.name);
     option.value = profile.id;
@@ -566,9 +568,13 @@ async function openSettings() {
     return option;
   }));
   const form = $("settings-form");
-  for (const [key, value] of Object.entries(config)) form.elements.namedItem(key).value = value;
+  for (const [key, value] of Object.entries(config)) {
+    const field = form.elements.namedItem(key);
+    if (field) field.value = value;
+  }
   updateASRSettings(false);
   updateSummarySettings(false);
+  $("credentials-notice").hidden = Boolean(config.credentials?.can_manage);
   $("settings-dialog").showModal();
   notify("");
 }
@@ -597,6 +603,7 @@ function updateASRSettings(usePreset) {
     $("asr-local-model").value = localModelHelp.has(model) ? model : profile.model;
     updateLocalModelHelp();
   }
+  updateKeyField("asr");
 }
 
 // updateSummarySettings switches from manual endpoint inputs to preset model choices.
@@ -614,8 +621,6 @@ function updateSummarySettings(usePreset) {
   model.required = !preset;
   picker.hidden = picker.disabled = !preset;
   $("llm-model-label").htmlFor = preset ? "llm-preset-model" : "llm-model";
-  const hint = $("llm-key-help");
-  hint.hidden = !preset;
   if (preset) {
     const choices = [...profile.models];
     if (!usePreset && model.value && !choices.includes(model.value)) choices.push(model.value);
@@ -626,11 +631,39 @@ function updateSummarySettings(usePreset) {
     }));
     picker.value = usePreset ? choices[0] : model.value || choices[0];
     model.value = picker.value;
-    hint.textContent = "在运行声记的电脑首次配置 " + profile.key_env + " 后，可直接选择模型。";
   } else if (usePreset && wasPreset) {
     url.value = profile.id === "ollama" ? "http://127.0.0.1:11434" : "";
     model.value = profile.id === "ollama" ? "qwen3:8b" : "";
   }
+  updateKeyField("llm");
+}
+
+// Show saved status for the current service without putting a stored key into the form.
+function updateKeyField(kind) {
+  const config = state.savedModelSettings;
+  if (!config) return;
+  const asr = kind === "asr";
+  const provider = $(asr ? "asr-provider" : "provider").value;
+  const savedProvider = asr ? config.asr_provider : config.provider;
+  const url = $(kind + "-url");
+  const normalize = (base) => base.trim().replace(/\/+$/, "");
+  const endpoint = url.disabled ? "" : normalize(url.value);
+  const savedEndpoint = normalize(config[kind + "_url"]);
+  const enabled = Boolean(config.credentials?.can_manage) && provider !== "sherpa";
+  const saved = enabled && provider === savedProvider && endpoint === savedEndpoint && config.credentials[kind + "_saved"];
+  const field = $(kind + "-key-field");
+  const input = $(kind + "-api-key");
+  const clear = $(kind + "-clear-key");
+  const target = provider + "\n" + endpoint;
+  if (field.dataset.target !== target) {
+    field.dataset.target = target;
+    input.value = "";
+    clear.checked = false;
+  }
+  field.hidden = !enabled;
+  $(kind + "-clear-key-label").hidden = !saved;
+  input.disabled = !enabled || clear.checked;
+  $(kind + "-key-help").textContent = saved ? "已保存。留空保留原密钥。" : provider === "ollama" ? "本机 Ollama 通常可留空。" : "";
 }
 
 // updateLocalModelHelp keeps the saved model, download link and use case aligned.
@@ -830,11 +863,27 @@ function wireEvents() {
   $("import-dialog").addEventListener("cancel", (event) => {
     if ($("import-file").disabled) event.preventDefault();
   });
-  $("settings-button").onclick = () => run(openSettings);
+  $("settings-button").onclick = async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try { await openSettings(); }
+    catch (error) { notify(error.message); }
+    finally { button.disabled = false; }
+  };
   $("asr-provider").onchange = () => updateASRSettings(true);
   $("asr-local-model").onchange = updateLocalModelHelp;
   $("provider").onchange = () => updateSummarySettings(true);
   $("llm-preset-model").onchange = (event) => { $("llm-model").value = event.target.value; };
+  for (const kind of ["asr", "llm"]) {
+    $(kind + "-url").oninput = () => updateKeyField(kind);
+    $(kind + "-clear-key").onchange = () => updateKeyField(kind);
+  }
+  $("settings-dialog").addEventListener("close", () => {
+    for (const kind of ["asr", "llm"]) {
+      $(kind + "-api-key").value = "";
+      $(kind + "-clear-key").checked = false;
+    }
+  });
   $("more-button").onclick = () => run(async () => { state.page++; await refreshList(true); });
   let searchTimer;
   $("search").oninput = () => {
@@ -904,7 +953,13 @@ function wireEvents() {
     renderMeeting(meeting);
   });
   onSubmit("settings-form", async (form) => {
-    const saved = await api("/api/settings", "PUT", Object.fromEntries(new FormData(form)));
+    const config = Object.fromEntries(new FormData(form));
+    for (const kind of ["asr", "llm"]) {
+      const key = kind + "_api_key";
+      if ($(kind + "-clear-key").checked) config[key] = "";
+      else if (!config[key]?.trim()) delete config[key];
+    }
+    const saved = await api("/api/settings", "PUT", config);
     renderASRStatus(saved);
     $("settings-dialog").close();
     notify("模型设置已保存", "success");

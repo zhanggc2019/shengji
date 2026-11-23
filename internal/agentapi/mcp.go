@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/zhanggc2019/shengji/internal/buildinfo"
 	"github.com/zhanggc2019/shengji/internal/minutes"
 )
 
@@ -19,7 +20,7 @@ type transcribeInput struct {
 
 // mcpHandler exposes the active settings and one stateless file-to-text workflow.
 func (s *service) mcpHandler() http.Handler {
-	server := mcp.NewServer(&mcp.Implementation{Name: "shengji-asr", Version: "0.1.0"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "shengji-asr", Version: buildinfo.Version()}, nil)
 	noExternalInteractions := false
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "asr_info",
