@@ -10,11 +10,12 @@ import (
 	"math"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/zhanggc2019/shengji/internal/configenv"
 )
 
 const chunkRunes = 6000
@@ -243,7 +244,7 @@ func (p *HTTPAI) summaryRequest(ctx context.Context, c Settings, prompt string) 
 	requestURL := endpoint(c.LLMURL, path)
 	if profile.url != "" {
 		requestURL = profile.url
-		key = strings.TrimSpace(os.Getenv(profile.KeyEnv))
+		key = strings.TrimSpace(configenv.Get(profile.KeyEnv))
 		if key == "" {
 			return nil, fmt.Errorf("请在运行声记的电脑上配置 %s 的 API Key（%s）并重启服务", profile.Name, profile.KeyEnv)
 		}

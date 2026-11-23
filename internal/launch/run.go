@@ -1,8 +1,7 @@
-package main
+package launch
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,22 +18,32 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/zhanggc2019/shengji/internal/configenv"
 	"github.com/zhanggc2019/shengji/internal/minutes"
+	"github.com/zhanggc2019/shengji/internal/webui"
 )
 
-//go:embed web
-var content embed.FS
+// Desktop opens the application window until the user exits.
+type Desktop func(context.Context, string, []byte) error
 
-const defaultListen = "0.0.0.0:9011"
+// Options selects the command's listener and optional desktop lifecycle.
+type Options struct {
+	Listen     string
+	NewDesktop func(string) (Desktop, error)
+	ShowError  func(error)
+	WrapHTTP   func(app *minutes.App, dataDir string, browser http.Handler, allowLAN bool) (http.Handler, error)
+}
 
-// main starts the application, including browser-only and native desktop modes.
-func main() {
+// Main starts the shared application and reports startup failures.
+func Main(options Options) {
 	if os.Getenv(gin.EnvGinMode) == "" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	if err := run(); err != nil {
+	if err := run(options); err != nil {
 		log.Print(err)
-		startupError(err)
+		if options.ShowError != nil {
+			options.ShowError(err)
+		}
 		os.Exit(1)
 	}
 }
@@ -53,8 +62,8 @@ func dataDir() (string, error) {
 }
 
 // run starts the shared HTTP service and shuts it down after the window or process exits.
-func run() error {
-	listen := flag.String("listen", defaultListen, "HTTP 监听地址")
+func run(options Options) error {
+	listen := flag.String("listen", options.Listen, "HTTP 监听地址")
 	root := flag.String("data-dir", "", "会议数据库及音频目录")
 	browser := flag.Bool("browser-only", false, "仅运行浏览器服务")
 	flag.Parse()
@@ -65,10 +74,10 @@ func run() error {
 			return err
 		}
 	}
-	var ui *desktopSession
-	if !*browser {
+	var ui Desktop
+	if !*browser && options.NewDesktop != nil {
 		var err error
-		ui, err = newDesktopSession(*root)
+		ui, err = options.NewDesktop(*root)
 		if err != nil {
 			return err
 		}
@@ -90,23 +99,28 @@ func run() error {
 		return errors.New("服务地址须使用回环地址或局域网地址")
 	}
 	app, err := minutes.Open(*root, minutes.WindowsCapture, &minutes.HTTPAI{
-		ASRKey:    os.Getenv("ODDMINUTES_ASR_API_KEY"),
-		ASRKeys:   map[string]string{"openai": os.Getenv("ODDMINUTES_ASR_OPENAI_KEY"), "groq": os.Getenv("ODDMINUTES_ASR_GROQ_KEY")},
-		NativeASR: os.Getenv("ODDMINUTES_SHERPA_EXE"),
-		LLMKey:    os.Getenv("ODDMINUTES_LLM_API_KEY"),
+		ASRKey:    configenv.Get("SHENGJI_ASR_API_KEY"),
+		ASRKeys:   map[string]string{"openai": configenv.Get("SHENGJI_ASR_OPENAI_KEY"), "groq": configenv.Get("SHENGJI_ASR_GROQ_KEY")},
+		NativeASR: configenv.Get("SHENGJI_SHERPA_EXE"),
+		LLMKey:    configenv.Get("SHENGJI_LLM_API_KEY"),
 	})
 	if err != nil {
 		return err
 	}
 	defer app.Close()
-	web, err := fs.Sub(content, "web")
-	if err != nil {
-		return err
-	}
+	web := webui.Files()
 	icon, _ := fs.ReadFile(web, "favicon.ico")
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	server := &http.Server{Handler: app.Handler(web, !ip.IsLoopback()), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second}
+	allowLAN := !ip.IsLoopback()
+	handler := app.Handler(web, allowLAN)
+	if options.WrapHTTP != nil {
+		handler, err = options.WrapHTTP(app, *root, handler, allowLAN)
+		if err != nil {
+			return err
+		}
+	}
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second}
 	defer server.Close()
 	failed := make(chan error, 1)
 	go func() {
@@ -120,9 +134,9 @@ func run() error {
 	if ip.IsUnspecified() {
 		fmt.Printf("局域网访问使用本机的局域网 IP 和端口 %d\n", bound.Port)
 	}
-	if *browser {
+	if ui == nil {
 		<-ctx.Done()
-	} else if err = ui.run(ctx, address, icon); err != nil {
+	} else if err = ui(ctx, address, icon); err != nil {
 		return err
 	}
 	shutdown, stop := context.WithTimeout(context.Background(), 5*time.Second)

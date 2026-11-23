@@ -25,7 +25,8 @@ $oddServer = Join-Path $oddOutput "Shengji-server-$Architecture.exe"
 if ($Offline -and $Architecture -ne 'amd64') { throw 'The offline installer is verified on Windows AMD64.' }
 $oddFlavor = if ($Offline) { '-offline' } else { '' }
 $oddPackage = Join-Path $oddOutput "Shengji-$Architecture$oddFlavor-installer.exe"
-$oddResource = Join-Path $oddRoot "zz_oddminutes_windows_$Architecture.syso"
+$oddResource = Join-Path $oddRoot "cmd\shengji\zz_oddminutes_windows_$Architecture.syso"
+$oddIcon = Join-Path $oddRoot 'internal\webui\static\favicon.ico'
 if (Test-Path -LiteralPath $oddResource) { throw "Temporary resource already exists: $oddResource" }
 $oddPrevious = @{ CGO_ENABLED = $env:CGO_ENABLED; GOOS = $env:GOOS; GOARCH = $env:GOARCH; GOTOOLCHAIN = $env:GOTOOLCHAIN }
 $env:CGO_ENABLED = '0'
@@ -40,14 +41,14 @@ try {
         '-productidentifier', 'net.oddmeta.oddminutes.go', '-productversion', $oddVersion,
         '-productdescription', 'Local meeting recorder', '-productcopyright', 'OddMeta')
     Invoke-BuildTool $Wails @('generate', 'syso', '-arch', $Architecture,
-        '-icon', (Join-Path $oddRoot 'web\favicon.ico'),
+        '-icon', $oddIcon,
         '-manifest', (Join-Path $oddAssets 'windows\wails.exe.manifest'),
         '-info', (Join-Path $oddAssets 'windows\info.json'), '-out', $oddResource)
     Invoke-BuildTool 'go' @('build', '-tags', 'production', '-trimpath', '-ldflags', '-s -w -H windowsgui',
-        '-o', $oddDesktop, '.')
+        '-o', $oddDesktop, './cmd/shengji')
     Remove-Item -LiteralPath $oddResource
-    Invoke-BuildTool 'go' @('build', '-tags', 'server,production', '-trimpath', '-ldflags', '-s -w',
-        '-o', $oddServer, '.')
+    Invoke-BuildTool 'go' @('build', '-tags', 'production', '-trimpath', '-ldflags', '-s -w',
+        '-o', $oddServer, './cmd/shengji-server')
     $oddExtraDefines = @()
     if ($Offline) {
         $oddSherpa = Join-Path $oddOutput 'sherpa'
@@ -72,7 +73,7 @@ try {
         $oddNSIS = Join-Path $oddAssets 'windows\nsis'
         Invoke-BuildTool $Wails @('generate', 'webview2bootstrapper', '-dir', $oddNSIS)
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'installer.nsi') -Destination (Join-Path $oddNSIS 'oddminutes.nsi')
-        Copy-Item -LiteralPath (Join-Path $oddRoot 'web\favicon.ico') -Destination (Join-Path $oddNSIS 'oddminutes.ico')
+        Copy-Item -LiteralPath $oddIcon -Destination (Join-Path $oddNSIS 'oddminutes.ico')
         Push-Location -LiteralPath $oddNSIS
         try {
             Invoke-BuildTool $Makensis (@('/V2', '/INPUTCHARSET', 'UTF8', "/DARG_WAILS_$($Architecture.ToUpperInvariant())_BINARY=$oddDesktop",

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f7f8fc">
+  <meta name="theme-color" content="#f8f8f4">
   <title>声记</title>
   <script src="/theme.js"></script>
   <link rel="icon" href="/favicon.ico">
@@ -21,12 +21,12 @@
         <button type="button" id="library-toggle" aria-expanded="false" aria-controls="library-content">会议库<span class="chevron" aria-hidden="true"></span></button>
       </div>
       <div class="library-content" id="library-content">
-        <div class="library-actions">
+        <div class="library-actions" id="library-actions" hidden>
           <button id="new-button" class="create">新建记录</button>
           <button id="import-button" class="quiet">导入音视频</button>
         </div>
         <label class="search-label" for="search">会议库</label>
-        <div class="search-wrap"><input id="search" type="search" placeholder="搜索会议或转录"></div>
+        <div class="search-wrap"><input id="search" type="search" placeholder="搜索会议或转录" disabled></div>
         <div id="meeting-list" class="meeting-list"></div>
         <button id="more-button" class="quiet" hidden>加载更多</button>
         <div class="rail-end">
@@ -45,13 +45,15 @@
         </div>
       </header>
       <div id="notice" role="status" hidden></div>
-      <section id="empty">
+      <p id="library-loading" role="status">正在加载会议库…</p>
+      <section id="empty" aria-labelledby="empty-title" hidden>
         <div class="empty-intro">
-          <h1>记录下一场会议</h1>
+          <div class="empty-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <h1 id="empty-title">暂无会议</h1>
           <p>录一场新的会议，或导入已有音视频开始转录。</p>
-          <div class="compact empty-actions">
+          <div class="compact empty-actions" role="group" aria-label="记录下一场会议">
             <button id="empty-new" class="primary">新建记录</button>
-            <button id="empty-import" class="quiet">导入已有音视频</button>
+            <button id="empty-import" class="quiet">导入音视频</button>
           </div>
         </div>
       </section>

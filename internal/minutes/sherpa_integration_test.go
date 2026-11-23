@@ -11,17 +11,19 @@ import (
 	"path/filepath"
 	"testing"
 	"unicode"
+
+	"github.com/zhanggc2019/shengji/internal/configenv"
 )
 
 // TestSherpaOfficialModels exercises the offline worker through the same upload and job APIs as the browser.
 func TestSherpaOfficialModels(t *testing.T) {
-	provider := &HTTPAI{NativeASR: os.Getenv("ODDMINUTES_OFFLINE_WORKER")}
+	provider := &HTTPAI{NativeASR: configenv.Get("SHENGJI_OFFLINE_WORKER")}
 	for _, entry := range []struct{ family, modelEnv, wavEnv string }{
-		{"sensevoice", "ODDMINUTES_SENSEVOICE_DIR", "ODDMINUTES_SENSEVOICE_WAV"},
-		{"paraformer", "ODDMINUTES_PARAFORMER_DIR", "ODDMINUTES_PARAFORMER_WAV"},
+		{"sensevoice", "SHENGJI_SENSEVOICE_DIR", "SHENGJI_SENSEVOICE_WAV"},
+		{"paraformer", "SHENGJI_PARAFORMER_DIR", "SHENGJI_PARAFORMER_WAV"},
 	} {
 		t.Run(entry.family, func(t *testing.T) {
-			dir, wav := os.Getenv(entry.modelEnv), os.Getenv(entry.wavEnv)
+			dir, wav := configenv.Get(entry.modelEnv), configenv.Get(entry.wavEnv)
 			if dir == "" || wav == "" || provider.NativeASR == "" {
 				t.Fatal("set the official model, sample WAV and worker paths")
 			}

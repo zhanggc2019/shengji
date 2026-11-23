@@ -101,6 +101,7 @@ type App struct {
 	dir       string
 	capture   Capture
 	ai        AI
+	asrSlot   chan struct{}
 	ctx       context.Context
 	cancel    context.CancelFunc
 	done      chan struct{}
@@ -150,7 +151,7 @@ func Open(root string, capture Capture, ai AI) (*App, error) {
 	}
 	db.SetMaxOpenConns(1)
 	ctx, cancel := context.WithCancel(context.Background())
-	a := &App{db: db, lock: lock, dir: root, capture: capture, ai: ai, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
+	a := &App{db: db, lock: lock, dir: root, capture: capture, ai: ai, asrSlot: make(chan struct{}, 1), ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
 	if a.ai == nil {
 		a.ai = &HTTPAI{}
 	}

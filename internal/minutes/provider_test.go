@@ -66,9 +66,9 @@ func TestHTTPProviders(t *testing.T) {
 // TestSummaryPresets checks fixed vendor routing, model selection and credential isolation.
 func TestSummaryPresets(t *testing.T) {
 	for _, vendor := range []struct{ id, url, env string }{
-		{"deepseek", "https://api.deepseek.com/chat/completions", "ODDMINUTES_DEEPSEEK_API_KEY"},
-		{"zhipu", "https://open.bigmodel.cn/api/paas/v4/chat/completions", "ODDMINUTES_ZHIPU_API_KEY"},
-		{"siliconflow", "https://api.siliconflow.cn/v1/chat/completions", "ODDMINUTES_SILICONFLOW_API_KEY"},
+		{"deepseek", "https://api.deepseek.com/chat/completions", "SHENGJI_DEEPSEEK_API_KEY"},
+		{"zhipu", "https://open.bigmodel.cn/api/paas/v4/chat/completions", "SHENGJI_ZHIPU_API_KEY"},
+		{"siliconflow", "https://api.siliconflow.cn/v1/chat/completions", "SHENGJI_SILICONFLOW_API_KEY"},
 	} {
 		t.Run(vendor.id, func(t *testing.T) {
 			profile, ok := summaryProfile(vendor.id)

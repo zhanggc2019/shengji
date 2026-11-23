@@ -36,7 +36,15 @@ var asrProfiles = []ASRProfile{
 // transcriptionSource exposes only the model identity from the completed job's settings snapshot.
 func transcriptionSource(snapshot string) *TranscriptionSource {
 	var config Settings
-	if snapshot == "" || json.Unmarshal([]byte(snapshot), &config) != nil || strings.TrimSpace(config.ASRModel) == "" {
+	if snapshot == "" || json.Unmarshal([]byte(snapshot), &config) != nil {
+		return nil
+	}
+	return sourceForSettings(config)
+}
+
+// sourceForSettings names the configured backend without exposing connection details.
+func sourceForSettings(config Settings) *TranscriptionSource {
+	if strings.TrimSpace(config.ASRModel) == "" {
 		return nil
 	}
 	source := &TranscriptionSource{Provider: config.ASRProvider, Model: config.ASRModel}
@@ -216,7 +224,7 @@ func (p *HTTPAI) transcribeLocal(ctx context.Context, c Settings, path, language
 		exe = filepath.Join(filepath.Dir(mainExe), "sherpa", "OddMinutes-sherpa.exe")
 	}
 	if _, err := os.Stat(exe); err != nil {
-		return nil, errors.New("未找到 Sherpa-ONNX 本机组件，请安装离线版或配置 ODDMINUTES_SHERPA_EXE")
+		return nil, errors.New("未找到 Sherpa-ONNX 本机组件，请安装离线版或配置 SHENGJI_SHERPA_EXE")
 	}
 	cmd := exec.CommandContext(ctx, exe, "--family", c.ASRModel, "--model-dir", c.ASRModelDir, "--audio", path, "--language", language)
 	hideNativeConsole(cmd)

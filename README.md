@@ -7,10 +7,10 @@
 开发环境运行桌面窗口
 
 ```powershell
-go run .
+go run ./cmd/shengji
 ```
 
-仅在浏览器使用时运行 `go run -tags server .`。服务默认监听 `0.0.0.0:9011`，本机打开 `http://127.0.0.1:9011`，局域网设备通过此电脑的局域网 IPv4 地址和端口 `9011` 访问。可用 Windows 的 `ipconfig` 查看地址。桌面版也可通过托盘菜单「在浏览器中打开」。
+仅在浏览器或 Agent 中使用时运行 `go run ./cmd/shengji-server`。Server 版默认监听 `127.0.0.1:9011`，本机打开 `http://127.0.0.1:9011`。如需向局域网开放工作台、ASR API 和 MCP，传入 `--listen 0.0.0.0:9011`。桌面版默认监听 `0.0.0.0:9011`，可通过托盘菜单「在浏览器中打开」。
 
 重复启动同一会议库的新版桌面程序时，会唤醒已有窗口。升级时可通过托盘「退出声记」关闭旧版后再打开新版。默认端口已占用时自动使用可用端口，以启动输出或托盘打开的地址为准。显式传入 `--listen` 时使用指定端口。
 
@@ -50,7 +50,7 @@ Windows 下载对应架构的静态版并解压，将 `bin\ffmpeg.exe` 放到声
 
 ### 本机 SenseVoice 与 Paraformer
 
-1. 安装离线版，或用 `-Offline` 构建本机组件。组件与依赖应位于主程序旁的 `sherpa` 目录。高级用法可设置 `ODDMINUTES_SHERPA_EXE` 指向组件。
+1. 安装离线版，或用 `-Offline` 构建本机组件。组件与依赖应位于主程序旁的 `sherpa` 目录。高级用法可设置 `SHENGJI_SHERPA_EXE` 指向组件。
 2. 在「模型设置」选择「本机转录（离线）」，下拉选择模型，再通过界面下载。SenseVoice 的模型和词表由魔搭社区提供。Paraformer 的带时间戳原版压缩包由社区加速镜像提供。[SenseVoice 模型](https://www.modelscope.cn/api/v1/models/WEAAEW/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/repo?Revision=860e3f03644fb4d979bfd93c4ef345c93c0feaf8&FilePath=model.int8.onnx) · [SenseVoice 词表](https://www.modelscope.cn/api/v1/models/WEAAEW/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/repo?Revision=6652fb804909a130d070d533690dd578e983784d&FilePath=tokens.txt) · [Paraformer 模型包](https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-2023-09-14.tar.bz2)
 3. 在声记服务主机上，把 SenseVoice 的两个文件放到同一目录，或解压 Paraformer 压缩包。将包含 `model.int8.onnx` 和 `tokens.txt` 的文件夹填入「模型包目录」。
 4. 导入 16 位单声道 PCM WAV，或使用应用录制的 WAV，点击「生成转录」。可将 [Silero VAD 模型](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx) 放进同一模型目录，16 kHz 音频将按语音段识别。其余输入按有界音频窗口识别。
@@ -59,15 +59,42 @@ Windows 下载对应架构的静态版并解压，将 `bin\ffmpeg.exe` 放到声
 
 转录页和 TXT、Markdown、JSON 导出包含生成当前文本的模型、音频时长和转录耗时。转录耗时从开始调用转录服务到收到结果。重新转录成功后更新来源，失败时继续保留原结果及其来源。在「最近转录记录」可以对比同一音频的模型和耗时。
 
+## ASR 接入 Agent
+
+用 `go run ./cmd/shengji-server` 或 `Shengji-server-amd64.exe` 启动服务，按启动时输出的地址连接，默认是 `http://127.0.0.1:9011`。在工作台「模型设置」先配置所需的 ASR 模型。浏览器、HTTP ASR 和 MCP 共用该配置。新库默认使用本机 SenseVoice，推理需要离线工作进程和模型包。如果选择了云端 ASR，识别会把提交的音频发送到所配置的服务。
+
+### HTTP API
+
+用 `GET /api/asr/status` 查询活动模型、可接收格式、文件大小上限和 MCP 音频目录。用 `POST /api/asr/transcriptions` 上传音频，第一项 Multipart 文件字段名为 `file`。语言可通过查询参数传入，例如 `language=zh`，省略或使用 `auto` 会使用自动识别。
+
+```powershell
+curl.exe http://127.0.0.1:9011/api/asr/status
+curl.exe -F "file=@D:\Audio\meeting.wav" "http://127.0.0.1:9011/api/asr/transcriptions?language=zh"
+```
+
+成功响应包含 `text`、`segments`、`source`、`elapsed_ms`，标准 PCM WAV 还会返回可读取的 `audio_seconds`。起止时间以秒计，字词时间戳和发言人取决于所用模型的输出能力。接口同步返回，文件上限为 500 MiB。模型识别较慢时，请按音频长度设置客户端超时。
+
+### MCP
+
+在 Agent 客户端添加一个 **Streamable HTTP** MCP 服务，URL 填 `http://127.0.0.1:9011/mcp`。
+
+1. 调用 `asr_info` 获取 `input_dir`、模型和格式。
+2. 把音频放进该目录。默认是会议库下的 `asr-input`，可在 Server 启动时用 `--asr-input-dir "D:\Audio\inbox"` 指定其他目录。
+3. 调用 `asr_transcribe`，参数例如 `{"path":"meeting.wav","language":"zh"}`。`path` 使用相对路径，可指向目录中的子文件。任意位置的文件也可直接走 HTTP 上传，无需放入 MCP 目录。
+
+Server 使用 `--listen 0.0.0.0:9011` 或明确的局域网地址启动时，两种 Agent 接口都可通过服务主机的局域网 IP 使用。MCP 的 `path` 指向服务主机上的文件。客户端上的文件可以直接通过 HTTP 上传。每次调用直接返回转录结果，会议库保持独立。默认本机模型接受 16 位单声道 PCM WAV。其他后端的输入能力以模型服务为准。
+
+## AI 纪要
+
 AI 纪要支持 Ollama、OpenAI 兼容、Claude、DeepSeek、智谱和硅基流动。对后三个预设，在运行声记的主机配置对应 API Key 并重启服务。然后在「模型设置」选择厂商和模型即可。
 
 | 摘要服务 | API Key 环境变量 | 文档 |
 |---|---|---|
-| DeepSeek | `ODDMINUTES_DEEPSEEK_API_KEY` | [模型与接口](https://api-docs.deepseek.com/quick_start/pricing/) |
-| 智谱 | `ODDMINUTES_ZHIPU_API_KEY` | [快速开始](https://docs.bigmodel.cn/cn/guide/start/quick-start) |
-| 硅基流动 | `ODDMINUTES_SILICONFLOW_API_KEY` | [快速上手](https://docs.siliconflow.cn/docs/userguide/quickstart) |
+| DeepSeek | `SHENGJI_DEEPSEEK_API_KEY` | [模型与接口](https://api-docs.deepseek.com/quick_start/pricing/) |
+| 智谱 | `SHENGJI_ZHIPU_API_KEY` | [快速开始](https://docs.bigmodel.cn/cn/guide/start/quick-start) |
+| 硅基流动 | `SHENGJI_SILICONFLOW_API_KEY` | [快速上手](https://docs.siliconflow.cn/docs/userguide/quickstart) |
 
-自定义摘要服务继续使用 `ODDMINUTES_LLM_API_KEY`。转录服务使用 `ODDMINUTES_ASR_API_KEY`（OddASR）、`ODDMINUTES_ASR_OPENAI_KEY` 或 `ODDMINUTES_ASR_GROQ_KEY`。
+自定义摘要服务使用 `SHENGJI_LLM_API_KEY`。转录服务使用 `SHENGJI_ASR_API_KEY`（OddASR）、`SHENGJI_ASR_OPENAI_KEY` 或 `SHENGJI_ASR_GROQ_KEY`。升级时，未设置新变量的配置会回读同名的旧前缀 `ODDMINUTES_`。
 
 ## 测试
 
@@ -78,18 +105,22 @@ go test -race ./internal/minutes
 go test -tags wasapi_integration -coverprofile coverage.out ./internal/minutes
 ```
 
-WASAPI 实机测试需要默认麦克风与播放设备，会播放短测试音。浏览器验收使用 Microsoft Edge 和装有 Playwright 的测试虚拟环境，模型服务由本机桩模拟。真实离线验收可设置 `ODDMINUTES_OFFLINE_WORKER`、`ODDMINUTES_SENSEVOICE_DIR`、`ODDMINUTES_SENSEVOICE_WAV`、`ODDMINUTES_PARAFORMER_DIR`、`ODDMINUTES_PARAFORMER_WAV`，再运行 `go test -tags sherpa_integration ./internal/minutes`。
+WASAPI 实机测试需要默认麦克风与播放设备，会播放短测试音。真实离线验收可设置 `SHENGJI_OFFLINE_WORKER`、`SHENGJI_SENSEVOICE_DIR`、`SHENGJI_SENSEVOICE_WAV`、`SHENGJI_PARAFORMER_DIR`、`SHENGJI_PARAFORMER_WAV`，再运行 `go test -tags sherpa_integration ./internal/minutes`。
+
+浏览器验收位于独立的 Go 测试模块 `tests/browser`，使用本机 Microsoft Edge。首次运行会下载 Playwright 驱动，模型服务由 Go 测试桩模拟。
 
 ```powershell
-uv venv .venv
-uv pip install --python .\.venv\Scripts\python.exe playwright
-.\.venv\Scripts\python.exe .\tests\browser_smoke.py .\bin\Shengji-server-amd64.exe
+go -C tests/browser test -count=1 -args -binary ..\..\bin\Shengji-server-amd64.exe
+go build -tags desktoptest -o .\bin\Shengji-desktop-test.exe ./cmd/shengji
+go -C tests/browser test -count=1 -args -binary ..\..\bin\Shengji-desktop-test.exe -desktop
 ```
 
-服务端可以调用 FFmpeg 时，给浏览器验收命令加上 `--video internal/minutes/testdata/video-with-audio.mp4`，可同时验证混合导入、视频回听和转录。
+服务端可以调用 FFmpeg 时，给验收命令加上 `-video ../../internal/minutes/testdata/video-with-audio.mp4`，可同时验证混合导入、视频回听和转录。
 
 ## 架构参考
 
+- `cmd/shengji` 是 Windows 桌面入口，`cmd/shengji-server` 是浏览器与 Agent 服务入口，`cmd/sherpa-asr` 是可选的本机 ASR 工作进程。
+- `internal/launch` 管理启动、监听和关闭，`internal/minutes` 管理会议库、录音与模型，`internal/agentapi` 提供 HTTP ASR 与 MCP，`internal/webui/static` 是两端共用的嵌入前端。
 - Gin 按 `/api` 分组注册 HTTP 接口，服务端用标准库 `http.Server` 管理超时与退出。代理信任关闭，浏览器 API 和 WebSocket 继续校验跨站请求。可在 PowerShell 设置 `$env:GIN_MODE = 'debug'` 查看路由调试输出。 [Gin 路由分组](https://gin-gonic.com/en/docs/routing/grouping-routes/) · [可信代理](https://gin-gonic.com/en/docs/server-config/trusted-proxies/) · [平滑退出](https://gin-gonic.com/en/docs/server-config/graceful-restart-or-stop/)
 - 桌面窗口与托盘生命周期参考 Wails 官方示例，安装包复用官方生成的资源和 WebView2 宏。桌面和浏览器共用 HTTP API 与同源 WebSocket。 [Wails 托盘示例](https://github.com/wailsapp/wails/tree/master/v3/examples/systray-menu) · [Server Build](https://wails.io/guides/server-build/) · [Windows 打包](https://v3.wails.io/guides/build/windows/)
 - Windows 采集通过开源 `go-wca` 使用 WASAPI，按微软文档对齐 QPC 时间并在读取后释放缓冲。浏览器订阅使用 `coder/websocket` 的同源校验、连接取消和写入超时。 [go-wca](https://github.com/moutend/go-wca) · [微软 WASAPI 缓冲规范](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer) · [coder/websocket](https://github.com/coder/websocket)

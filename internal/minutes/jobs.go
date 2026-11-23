@@ -87,9 +87,9 @@ func (a *App) runJob(job Job) error {
 					err = errors.New("没有可转录的音频")
 					break
 				}
-				started := time.Now()
-				segments, err = a.ai.Transcribe(a.ctx, config, filepath.Join(a.dir, "audio", m.audio), job.Language)
-				job.TranscriptionMetrics = &TranscriptionMetrics{AudioSeconds: m.Duration, ElapsedMS: time.Since(started).Milliseconds()}
+				var elapsed int64
+				segments, elapsed, err = a.transcribe(a.ctx, config, filepath.Join(a.dir, "audio", m.audio), job.Language)
+				job.TranscriptionMetrics = &TranscriptionMetrics{AudioSeconds: m.Duration, ElapsedMS: elapsed}
 				if m.Mode == modeTranscript {
 					for i := range segments {
 						segments[i].Speaker = ""

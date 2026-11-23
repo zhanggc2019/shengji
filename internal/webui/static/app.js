@@ -27,6 +27,7 @@ let importFFmpeg = "checking";
 let ffmpegCheck;
 const state = {
   id: "", meeting: null, list: [], query: "", page: 0, revision: -1, listVersion: 0,
+  hasMeetings: false,
   recording: {state: "idle"}, busy: false, rename: false, segment: -1, online: false,
   lastLine: null, lastWord: null, asrProfiles: [], summaryProfiles: [], initialized: false, noteDrafts: new Map(),
 };
@@ -137,7 +138,7 @@ function rememberMeeting(id) {
 function renderList() {
   const list = $("meeting-list");
   list.replaceChildren();
-  if (!state.list.length) list.append(elem("p", state.query ? "没有匹配的会议" : "暂无会议"));
+  if (!state.list.length && state.query && state.hasMeetings) list.append(elem("p", "没有匹配的会议"));
   for (const meeting of state.list) {
     const button = elem("button", undefined, "meeting-item");
     button.classList.toggle("selected", meeting.id === state.id);
@@ -158,12 +159,20 @@ function renderList() {
 // refreshList drops stale results if the user changed the search while a request was pending.
 async function refreshList(append = false) {
   const version = ++state.listVersion;
+  const query = state.query;
   if (!append) state.page = 0;
-  const result = await api("/api/meetings?q=" + encodeURIComponent(state.query) + "&page=" + state.page);
+  const result = await api("/api/meetings?q=" + encodeURIComponent(query) + "&page=" + state.page);
   if (version !== state.listVersion) return;
+  if (!append) {
+    // A search with no matches can still belong to a populated library.
+    const library = query && !result.length && !state.id ? await api("/api/meetings") : result;
+    if (version !== state.listVersion) return;
+    state.hasMeetings = Boolean(library.length || (query && state.id));
+  }
   state.list = append ? state.list.concat(result) : result;
   $("more-button").hidden = result.length < 50;
   renderList();
+  renderLibraryState();
 }
 
 // selectMeeting updates only the meeting still selected when the response arrives.
@@ -178,17 +187,41 @@ async function selectMeeting(id) {
 
 // refreshCurrent refreshes only on mutations from the WebSocket rather than at the meter frequency.
 async function refreshCurrent() {
-  await Promise.all([refreshList(), refreshASRStatus().catch(() => {})]);
-  const initial = !state.initialized;
+  if (!state.initialized) {
+    $("library-loading").hidden = false;
+    notify("");
+  }
+  try {
+    await Promise.all([refreshList(), refreshASRStatus().catch(() => {})]);
+  } catch (error) {
+    if (!state.initialized) {
+      $("library-loading").hidden = true;
+      state.revision = -1;
+    }
+    throw error;
+  }
   const fallback = state.list[0]?.id || "";
-  const id = state.id || (initial ? recentMeeting() || fallback : "");
+  const id = state.id || (!state.initialized ? recentMeeting() || fallback : "");
   state.initialized = true;
-  if (!id) return;
-  try { await selectMeeting(id); }
+  try { if (id) await selectMeeting(id); }
   catch (error) {
     if (error.message !== "会议不存在") throw error;
     await selectMeeting(fallback !== id ? fallback : "");
+    if (!state.id) await refreshList();
+  } finally {
+    renderLibraryState();
   }
+}
+
+// renderLibraryState keeps the empty message and sidebar shortcuts tied to the current view.
+function renderLibraryState() {
+  const showIntro = state.initialized && !state.meeting;
+  $("library-loading").hidden = state.initialized;
+  $("search").disabled = !state.initialized;
+  $("empty").hidden = !showIntro;
+  $("library-actions").hidden = !state.meeting;
+  const title = state.hasMeetings ? "记录下一场会议" : "暂无会议";
+  if ($("empty-title").textContent !== title) $("empty-title").textContent = title;
 }
 
 // renderASRStatus describes the configured model for the next transcription.
@@ -280,7 +313,7 @@ function renderJob(kind, target) {
 function renderMeeting(meeting) {
   state.meeting = meeting;
   $("detail").hidden = !meeting;
-  $("empty").hidden = Boolean(meeting);
+  renderLibraryState();
   const player = $("audio-player");
   if (!meeting) {
     player.pause();
@@ -618,11 +651,26 @@ function updateLocalModelHelp() {
   $("asr-download-help").textContent = info.instructions;
 }
 
-// onSubmit prevents full navigation while a dialog saves its operation.
+// onSubmit keeps a dialog in place and reflects its pending save on the submit button.
 function onSubmit(id, submit) {
   $(id).addEventListener("submit", (event) => {
     event.preventDefault();
-    run(() => submit(event.currentTarget));
+    const form = event.currentTarget;
+    const button = event.submitter;
+    run(async () => {
+      const label = button?.textContent;
+      if (button) {
+        button.setAttribute("aria-busy", "true");
+        button.textContent = "保存中…";
+      }
+      try { await submit(form); }
+      finally {
+        if (button) {
+          button.removeAttribute("aria-busy");
+          button.textContent = label;
+        }
+      }
+    });
   });
 }
 
@@ -638,16 +686,20 @@ function showImportQueue() {
   const available = importQueue.filter(canImportFile);
   const waiting = count - available.length;
   list.replaceChildren(...importQueue.slice(0, maxImportFiles).map((entry) => {
-    const ready = canImportFile(entry);
-    const detail = ready ? entry.error : "等待 FFmpeg";
-    return elem("li", entry.file.name + (detail ? " · " + detail : ""), ready && entry.error ? "danger" : undefined);
+    if (!canImportFile(entry)) return elem("li", entry.file.name + " · 等待 FFmpeg");
+    const item = elem("li", undefined, entry.error ? "import-failure" : undefined);
+    item.append(elem("span", entry.file.name));
+    if (entry.error) item.append(elem("small", "导入失败：" + entry.error));
+    return item;
   }));
   list.hidden = count === 0 || count > maxImportFiles;
   $("import-title-field").hidden = count > 1;
   const submit = $("import-submit");
-  submit.disabled = $("import-file").disabled || available.length === 0 || count > maxImportFiles;
+  const importing = $("import-file").disabled;
+  submit.disabled = importing || available.length === 0 || count > maxImportFiles;
+  submit.setAttribute("aria-busy", String(importing));
   if (waiting && importFFmpeg !== "checking") $("ffmpeg-guide").open = true;
-  submit.textContent = waiting && available.length ? "先导入音频" :
+  submit.textContent = importing ? "正在导入…" : waiting && available.length ? "先导入音频" :
     available.some((entry) => entry.error) ? "重试失败文件" : "导入";
 }
 
@@ -722,7 +774,7 @@ async function importSelectedFiles() {
   const failures = [];
   let first;
   fileInput.disabled = title.disabled = close.disabled = mode.disabled = true;
-  $("import-submit").disabled = true;
+  showImportQueue();
   notify("");
   try {
     for (const [index, entry] of files.entries()) {
@@ -750,6 +802,7 @@ async function importSelectedFiles() {
     if (first) {
       await selectMeeting(first);
       await refreshList();
+      if (!dialog.open) $("title").focus();
     }
   } finally {
     fileInput.disabled = title.disabled = close.disabled = mode.disabled = false;
@@ -834,6 +887,7 @@ function wireEvents() {
     $("meeting-dialog").close();
     await selectMeeting(result.id);
     await refreshList();
+    if (!state.rename) $("title").focus();
   });
   $("import-form").addEventListener("submit", (event) => {
     event.preventDefault();
