@@ -181,7 +181,8 @@ func checkShortWorkspace(t *testing.T, browser pw.Browser, url string) {
 		checkPageCondition(t, page, `(() => {
 			const dialog = document.querySelector('#settings-dialog');
 			const bounds = dialog.getBoundingClientRect();
-			return bounds.top >= 0 && bounds.bottom <= innerHeight && dialog.scrollHeight > dialog.clientHeight;
+			const content = dialog.querySelector('.settings-content');
+			return bounds.top >= 0 && bounds.bottom <= innerHeight && content.scrollHeight > content.clientHeight;
 		})()`)
 		save := role(dialog, "button", "保存", true)
 		must(t, expect(save).ToBeInViewport(pw.LocatorAssertionsToBeInViewportOptions{Ratio: pw.Float(1)}))
