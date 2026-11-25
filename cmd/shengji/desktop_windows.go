@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -15,13 +16,17 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/zhanggc2019/shengji/internal/buildinfo"
+	"golang.org/x/sys/windows/registry"
 )
+
+const wmDWMColorizationColorChanged = 0x0320
 
 type desktopSession struct {
 	app                *application.App
 	window             atomic.Pointer[application.WebviewWindow]
 	updateBusy         atomic.Bool
 	lastOfferedVersion string
+	origin             string
 }
 
 // newDesktopSession registers reactivation before opening the listener or SQLite library.
@@ -34,7 +39,16 @@ func newDesktopSession(dataDir string) (*desktopSession, error) {
 	session := &desktopSession{}
 	session.app = application.New(application.Options{
 		Name: "声记", Description: "本地会议录音与纪要",
-		Windows: application.WindowsOptions{WebviewUserDataPath: filepath.Join(root, "webview"), AdditionalBrowserArgs: webviewTestArguments()},
+		Windows: application.WindowsOptions{
+			WebviewUserDataPath:   filepath.Join(root, "webview"),
+			AdditionalBrowserArgs: webviewTestArguments(),
+			WndProcInterceptor: func(_ uintptr, message uint32, _, _ uintptr) (uintptr, bool) {
+				if message == wmDWMColorizationColorChanged {
+					go session.updateAccent()
+				}
+				return 0, false
+			},
+		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: fmt.Sprintf("net.oddmeta.shengji.%x", key[:16]),
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
@@ -75,20 +89,51 @@ func (session *desktopSession) showWindow() {
 	}
 }
 
+func windowsAccent() string {
+	key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\DWM`, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer key.Close()
+	color, _, err := key.GetIntegerValue("AccentColor")
+	if err != nil {
+		return ""
+	}
+	// Windows stores the accent as an ABGR DWORD.
+	return fmt.Sprintf("#%02x%02x%02x", color&0xff, (color>>8)&0xff, (color>>16)&0xff)
+}
+
+func (session *desktopSession) updateAccent() {
+	if window := session.window.Load(); window != nil {
+		window.ExecJS(fmt.Sprintf(`if (location.origin === %q && typeof applyWindowsAccent === "function") applyWindowsAccent(%q);`, session.origin, windowsAccent()))
+	}
+}
+
 // run keeps the shared local server alive while the native window is hidden.
-func (session *desktopSession) run(ctx context.Context, url string, icon []byte) error {
+func (session *desktopSession) run(ctx context.Context, address string, icon []byte) error {
 	app := session.app
 	if len(icon) > 0 {
 		app.SetIcon(icon)
 	}
+	desktopURL, err := url.Parse(address)
+	if err != nil {
+		return err
+	}
+	query := desktopURL.Query()
+	query.Set("windows-accent", windowsAccent())
+	desktopURL.RawQuery = query.Encode()
+	session.origin = address
+	app.Event.OnApplicationEvent(events.Windows.SystemThemeChanged, func(*application.ApplicationEvent) { session.updateAccent() })
 	// Wails populates the DPI-adjusted screen work areas before this event.
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
-		window := app.Window.NewWithOptions(desktopWindowOptions(url, app.Screen.GetPrimary()))
+		window := app.Window.NewWithOptions(desktopWindowOptions(desktopURL.String(), app.Screen.GetPrimary()))
 		window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 			e.Cancel()
 			window.Hide()
 		})
 		session.window.Store(window)
+		window.OnWindowEvent(events.Windows.WebViewNavigationCompleted, func(*application.WindowEvent) { session.updateAccent() })
+		window.OnWindowEvent(events.Common.WindowFocus, func(*application.WindowEvent) { session.updateAccent() })
 	})
 	tray := app.SystemTray.New()
 	if len(icon) > 0 {
@@ -97,7 +142,7 @@ func (session *desktopSession) run(ctx context.Context, url string, icon []byte)
 	tray.SetTooltip("声记")
 	menu := app.NewMenu()
 	menu.Add("显示主窗口").OnClick(func(*application.Context) { session.showWindow() })
-	menu.Add("在浏览器中打开").OnClick(func(*application.Context) { _ = app.Browser.OpenURL(url) })
+	menu.Add("在浏览器中打开").OnClick(func(*application.Context) { _ = app.Browser.OpenURL(address) })
 	if buildinfo.UpdateRepository != "" {
 		updateCtx, cancel := context.WithCancel(ctx)
 		defer cancel()

@@ -143,6 +143,9 @@ func TestMeetingWorkflow(t *testing.T) {
 		t.Fatalf("bad mixed WAV: %d bytes", len(wav))
 	}
 	call(t, h, "POST", path+"/jobs/summary", nil, 409)
+	settings := defaultSettings
+	settings.ASRModelDir = root
+	call(t, h, "PUT", "/api/settings", settings, 200)
 	call(t, h, "POST", path+"/jobs/transcription", map[string]string{"language": "zh"}, 202)
 	m := waitJob(t, h, path, "completed")
 	if len(m.Segments) != 1 || len(m.Segments[0].Words) != 1 {
@@ -222,6 +225,9 @@ func TestUploadAndFailedReplacement(t *testing.T) {
 	if !m.HasAudio {
 		t.Fatal(m)
 	}
+	settings := defaultSettings
+	settings.ASRModelDir = t.TempDir()
+	call(t, h, "PUT", "/api/settings", settings, 200)
 	call(t, h, "POST", path+"/jobs/transcription", nil, 202)
 	prior := waitJob(t, h, path, "completed")
 	if prior.TranscriptionSource == nil {
@@ -231,7 +237,6 @@ func TestUploadAndFailedReplacement(t *testing.T) {
 	want := waitJob(t, h, path, "completed").Summary
 	ai.failSummary.Store(true)
 	ai.failASR.Store(true)
-	settings := defaultSettings
 	settings.ASRModel = "paraformer"
 	call(t, h, "PUT", "/api/settings", settings, 200)
 	call(t, h, "POST", path+"/jobs/transcription", nil, 202)
@@ -274,6 +279,11 @@ func TestPureTranscriptMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := "/api/meetings/" + id
+	call(t, h, "POST", path+"/jobs/transcription", nil, 409)
+	if m := getMeeting(t, h, path); len(m.Jobs) != 0 {
+		t.Fatalf("unconfigured local ASR queued a job: %+v", m.Jobs)
+	}
+	initial.ASRModelDir = root
 	for _, model := range []string{"sensevoice", "paraformer"} {
 		initial.ASRModel = model
 		call(t, h, "PUT", "/api/settings", initial, 200)

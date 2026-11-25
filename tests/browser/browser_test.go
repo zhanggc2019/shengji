@@ -79,6 +79,8 @@ func TestBrowserSmoke(t *testing.T) {
 		}
 		peer = contexts[0].Pages()[0]
 		must(t, expect(peer.Locator(".brand")).ToBeVisible())
+		must(t, expect(peer.Locator("html")).ToHaveAttribute("data-platform", "windows"))
+		checkPageCondition(t, peer, `document.documentElement.dataset.theme === (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')`)
 	} else {
 		peer, err = edge.NewPage()
 		must(t, err)
@@ -98,7 +100,7 @@ func TestBrowserSmoke(t *testing.T) {
 	if *darkShot != "" {
 		must(t, role(page.Locator("body"), "button", "切换到深色主题", true).Click())
 		must(t, expect(page.Locator("html")).ToHaveAttribute("data-theme", "dark"))
-		must(t, expect(page.Locator(".library")).ToHaveCSS("background-color", "rgb(21, 25, 27)"))
+		must(t, expect(page.Locator(".library")).ToHaveCSS("background-color", "rgb(28, 28, 28)"))
 		saveScreenshot(t, page, *darkShot)
 	}
 	checkNarrowWorkspace(t, edge, url)

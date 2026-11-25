@@ -138,6 +138,7 @@ func checkModelChoices(t *testing.T, page pw.Page) {
 	selectValue(t, provider, "sherpa")
 	model := dialog.GetByLabel("转录模型", pw.LocatorGetByLabelOptions{Exact: pw.Bool(true)})
 	must(t, expect(model).ToHaveValue("sensevoice"))
+	must(t, dialog.Locator("#asr-model-guide summary").Click())
 	const senseVoice = "https://www.modelscope.cn/api/v1/models/WEAAEW/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/repo"
 	must(t, expect(role(dialog, "link", "下载 SenseVoice 模型", true)).ToHaveAttribute("href",
 		senseVoice+"?Revision=860e3f03644fb4d979bfd93c4ef345c93c0feaf8&FilePath=model.int8.onnx"))

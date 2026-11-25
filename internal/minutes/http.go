@@ -304,6 +304,10 @@ func (a *App) enqueue(w http.ResponseWriter, r *http.Request) {
 		serverFailure(w, err)
 		return
 	}
+	if kind == "transcription" && config.ASRProvider == "sherpa" && strings.TrimSpace(config.ASRModelDir) == "" {
+		fail(w, 409, "请先在模型设置填写本机转录模型包目录")
+		return
+	}
 	snapshot, err := json.Marshal(config)
 	if err != nil {
 		serverFailure(w, err)

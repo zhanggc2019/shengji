@@ -32,14 +32,15 @@ func configureProviders(t *testing.T, page pw.Page, providerURL string) {
 // checkSharedWorkspace verifies cross-client settings, ASR, editing, summary, downloads, and search.
 func checkSharedWorkspace(t *testing.T, page, peer pw.Page, url, providerURL string, audio pw.InputFile) {
 	for _, tab := range []pw.Page{page, peer} {
-		_, err := tab.Goto(url, pw.PageGotoOptions{WaitUntil: pw.WaitUntilStateDomcontentloaded})
+		target := url
+		if tab == peer && *desktopRun {
+			target = peer.URL()
+		}
+		_, err := tab.Goto(target, pw.PageGotoOptions{WaitUntil: pw.WaitUntilStateDomcontentloaded})
 		must(t, err)
 		must(t, expect(tab.Locator("#connection")).ToContainText("已连接"))
 		must(t, expect(tab.Locator("#active-asr")).ToContainText("本机离线 · SenseVoice"))
 	}
-	configureProviders(t, page, providerURL)
-	must(t, expect(peer.Locator("#active-asr")).ToContainText("OpenAI 兼容 · whisper-1"))
-
 	root, dialog := page.Locator("body"), page.Locator("#import-dialog")
 	must(t, role(root, "button", "导入音视频", true).Click())
 	must(t, dialog.GetByLabel("记录名称").Fill(fixtureMeeting))
@@ -49,6 +50,17 @@ func checkSharedWorkspace(t *testing.T, page, peer pw.Page, url, providerURL str
 	must(t, expect(page.Locator("audio")).ToBeVisible())
 	must(t, role(peer.Locator("#meeting-list"), "button", fixtureMeeting).Click())
 	must(t, expect(peer.Locator("audio")).ToBeVisible())
+	must(t, expect(role(root, "button", "生成转录", true)).ToBeHidden())
+	must(t, page.Locator("#export-menu summary").Click())
+	must(t, expect(role(root, "button", "JSON", true)).ToBeVisible())
+	must(t, expect(role(root, "button", "Markdown", true)).ToBeHidden())
+	must(t, page.Keyboard().Press("Escape"))
+	must(t, role(root, "button", "配置转录模型", true).Click())
+	must(t, expect(page.Locator("#settings-dialog").GetByLabel("模型包目录")).ToBeFocused())
+	must(t, expect(role(page.Locator("#settings-dialog"), "button", "保存", true)).ToBeInViewport())
+	must(t, page.Keyboard().Press("Escape"))
+	configureProviders(t, page, providerURL)
+	must(t, expect(peer.Locator("#active-asr")).ToContainText("OpenAI 兼容 · whisper-1"))
 
 	must(t, role(root, "button", "生成转录", true).Click())
 	must(t, expect(role(root, "button", "发布", true)).ToBeVisible())
@@ -62,12 +74,14 @@ func checkSharedWorkspace(t *testing.T, page, peer pw.Page, url, providerURL str
 	must(t, role(root, "tab", "AI 纪要", true).Click())
 	must(t, role(root, "button", "生成纪要", true).Click())
 	must(t, expect(page.Locator("#summary")).ToContainText("• 下周发布，由李工负责。"))
-	must(t, page.Locator("#meeting-menu summary").Click())
-	must(t, expect(root.GetByLabel("导出格式")).ToBeVisible())
+	export := page.Locator("#export-menu summary")
+	markdown := role(root, "button", "Markdown", true)
+	must(t, export.Click())
+	must(t, expect(markdown).ToBeVisible())
 	must(t, page.Keyboard().Press("Escape"))
-	must(t, expect(root.GetByLabel("导出格式")).ToBeHidden())
-	export := role(root, "button", "导出", true)
-	download, err := page.ExpectDownload(func() error { return export.Click() })
+	must(t, expect(markdown).ToBeHidden())
+	must(t, export.Click())
+	download, err := page.ExpectDownload(func() error { return markdown.Click() })
 	must(t, err)
 	if !strings.Contains(download.SuggestedFilename(), fixtureMeeting) {
 		t.Fatalf("unexpected download name: %q", download.SuggestedFilename())

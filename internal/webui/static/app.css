@@ -1,9 +1,9 @@
 :root {
   color-scheme: light;
-  --page: #f8f8f4; --sidebar: #eeefeb; --surface: #fff;
-  --subtle: #edeeea; --hover: #e8ebe7;
-  --ink: #1e2524; --secondary: #485450; --muted: #5b6862;
-  --line: #dce0d9; --control-line: #7f857f;
+  --page: #f9f9f9; --sidebar: #f3f3f3; --surface: #fff;
+  --subtle: #eee; --hover: #e8e8e8;
+  --ink: #1b1b1b; --secondary: #424242; --muted: #595959;
+  --line: #ddd; --control-line: #858585;
   --accent: #246257; --accent-hover: #194c43; --on-accent: #fff;
   --tint: #e2eee9; --tint-hover: #d5e7df; --tint-ink: #24584d; --ring: #37796c;
   --brand-bg: #e9e2f4; --brand-ink: #594884;
@@ -25,16 +25,26 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --page: #1a1e20; --sidebar: #15191b; --surface: #23282a;
-  --subtle: #2a3032; --hover: #31383a;
-  --ink: #edf1ee; --secondary: #c2ceca; --muted: #a9b8b3;
-  --line: #343d3d; --control-line: #748780;
+  --page: #202020; --sidebar: #1c1c1c; --surface: #282828;
+  --subtle: #303030; --hover: #383838;
+  --ink: #f4f4f4; --secondary: #d0d0d0; --muted: #b4b4b4;
+  --line: #414141; --control-line: #858585;
   --accent: #8ec3b2; --accent-hover: #a5d3c4; --on-accent: #142d28;
   --tint: #263e38; --tint-hover: #304b44; --tint-ink: #afd5c8; --ring: #90c7b5;
   --brand-bg: #2b2534; --brand-ink: #b6a4d6;
   --good: #9fd3b7; --good-bg: #22392f; --red: #f2a7b7; --red-bg: #432c34;
   --warn: #edc891; --warn-bg: #3b3026;
   --overlay: 0 8px 24px rgb(0 0 0 / .44); --backdrop: rgb(0 0 0 / .62);
+}
+
+:root[data-system-accent] {
+  --accent: var(--system-accent);
+  --on-accent: var(--system-on-accent);
+  --accent-hover: color-mix(in srgb, var(--accent) 90%, var(--system-hover-toward));
+  --tint: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  --tint-hover: color-mix(in srgb, var(--accent) 20%, var(--surface));
+  --tint-ink: color-mix(in srgb, var(--accent) 32%, var(--ink));
+  --ring: color-mix(in srgb, var(--accent) 45%, var(--ink));
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -223,12 +233,15 @@ main { min-width: 0; }
   background: var(--subtle); color: var(--secondary);
   font: 660 1.06rem/1.6 "Cascadia Mono", "Consolas", monospace; font-variant-numeric: tabular-nums;
 }
-#audio-options, #meters { display: flex; gap: .6rem 1.2rem; flex-wrap: wrap; color: var(--secondary); margin-top: .78rem; }
+#audio-options, #meters { color: var(--secondary); margin-top: 8px; }
+#meters { display: flex; gap: 8px 16px; flex-wrap: wrap; }
+#audio-options summary { display: list-item; width: fit-content; padding-block: 8px; cursor: pointer; }
+#audio-options .compact { gap: 8px 16px; }
 #audio-options label, #meters label, .checkbox { display: flex; align-items: center; gap: .46rem; }
 meter { accent-color: var(--accent); width: min(11.5rem, 27vw); height: .75rem; }
 audio { width: 100%; display: block; margin-top: .7rem; }
-.record { background: var(--red-bg); color: var(--red); border-color: transparent; font-weight: 660; }
-.record:not(:disabled):hover { background: color-mix(in srgb, var(--red) 14%, var(--surface)); }
+.record { background: var(--accent); color: var(--on-accent); border-color: transparent; font-weight: 650; }
+.record:not(:disabled):hover { background: var(--accent-hover); }
 .danger { color: var(--red); }
 
 .document { margin-top: 16px; }
@@ -268,6 +281,12 @@ dialog h2 { font: var(--title-type) var(--ui-font); margin-bottom: 8px; }
 dialog textarea, dialog input, dialog select { min-width: 0; }
 .dialog-actions { margin-top: 12px; display: flex; flex-wrap: wrap; justify-content: end; gap: 8px; }
 .dialog-actions .primary { min-inline-size: 104px; }
+#settings-dialog { width: min(94vw, 520px); }
+#settings-form { display: flex; flex-direction: column; max-height: calc(90vh - 42px); }
+.settings-content { display: grid; gap: 16px; min-height: 0; overflow-y: auto; padding: 4px; }
+.settings-content fieldset { display: grid; gap: 8px; min-inline-size: 0; margin: 0; padding: 8px 12px 12px; border: 1px solid var(--line); border-radius: var(--radius-control); }
+.settings-content legend { padding-inline: 4px; font-weight: 650; }
+#settings-form .dialog-actions { flex: none; border-top: 1px solid var(--line); margin-top: 0; padding-top: 12px; }
 .dialog-error {
   padding: 8px 12px; background: var(--red-bg); color: var(--red); border-radius: var(--radius-control);
   overflow-wrap: anywhere;

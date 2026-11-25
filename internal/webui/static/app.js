@@ -80,6 +80,7 @@ function notify(message, tone = "warning") {
 async function run(action, background = false) {
   if (state.busy) return;
   state.busy = true;
+  renderControls();
   const submitButtons = background ? [] : document.querySelectorAll("dialog[open] button:not([data-close]):enabled");
   if (!background) {
     submitButtons.forEach((button) => { button.disabled = true; });
@@ -230,8 +231,9 @@ function renderASRStatus(config) {
   const service = state.asrProfiles.find((profile) => profile.id === config.asr_provider);
   const model = service?.local ? localModelHelp.get(config.asr_model)?.name || config.asr_model : config.asr_model;
   const label = service?.local ? "本机离线" : service?.name || config.asr_provider;
-  const pending = service?.local && !config.asr_model_dir ? "（待配置）" : "";
-  $("active-asr").textContent = "转录：" + label + " · " + model + pending;
+  state.asrNeedsModel = Boolean(service?.local && !config.asr_model_dir?.trim());
+  $("active-asr").textContent = "转录：" + label + " · " + model + (state.asrNeedsModel ? "（待配置）" : "");
+  renderControls();
 }
 
 // refreshASRStatus updates the footer after a settings change in either client.
@@ -387,6 +389,8 @@ async function recordAudioDuration() {
 
 // renderControls mirrors the authoritative recorder and job state in all open windows.
 function renderControls() {
+  if ($("import-dialog").open) updateImportSubmit();
+  $("settings-button").disabled = state.busy;
   const current = state.recording;
   const meeting = state.meeting;
   const active = Boolean(current.meeting_id);
@@ -408,14 +412,34 @@ function renderControls() {
   $("meters").hidden = !owns;
   $("audio-options").hidden = owns || Boolean(meeting?.has_audio);
   $("start-button").hidden = owns || Boolean(meeting?.has_audio);
-  $("start-button").disabled = active || pending;
+  $("start-button").disabled = state.busy || active || pending;
   $("pause-button").hidden = !owns || current.state === "error";
   $("pause-button").textContent = current.state === "paused" ? "继续录音" : "暂停";
   $("stop-button").hidden = !owns;
   $("delete-button").disabled = owns || pending;
-  $("transcribe-button").disabled = !meeting?.has_audio || pending || owns;
-  $("transcribe-button").textContent = meeting?.segments?.length ? "重新转录" : "生成转录";
-  $("summary-button").disabled = !meeting?.segments?.length || pending || owns;
+  const hasAudio = Boolean(meeting?.has_audio);
+  const hasTranscript = Boolean(meeting?.segments?.length);
+  const needsModel = hasAudio && state.asrNeedsModel && !pending;
+  const exportMenu = $("export-menu");
+  const hasDocument = Boolean(hasTranscript || meeting?.summary || meeting?.notes);
+  exportMenu.hidden = !(hasAudio || hasDocument);
+  if (exportMenu.hidden) exportMenu.open = false;
+  for (const button of exportMenu.querySelectorAll('[data-export]:not([data-export="json"])')) button.hidden = !hasDocument;
+  $("language").hidden = !hasAudio || needsModel;
+  $("transcribe-button").hidden = !hasAudio || needsModel;
+  $("transcribe-button").disabled = state.busy || pending || owns;
+  $("transcribe-settings").disabled = state.busy;
+  $("transcribe-button").textContent = hasTranscript ? "重新转录" : "生成转录";
+  $("transcribe-button").classList.toggle("primary", !hasTranscript);
+  $("transcribe-settings").hidden = $("transcribe-setup-hint").hidden = !needsModel;
+  $("transcribe-settings").classList.toggle("primary", !hasTranscript);
+  const empty = $("transcript").querySelector(".empty-text");
+  if (empty) {
+    const text = !hasAudio ? "录制音频后，即可生成带时间戳的转录。" : pending ? "转录结果将在任务完成后显示。" :
+      needsModel ? "转录模型配置完成后，即可生成转录。" : "音频已就绪，生成转录后可按时间回听。";
+    if (empty.textContent !== text) empty.textContent = text;
+  }
+  $("summary-button").disabled = state.busy || !meeting?.segments?.length || pending || owns;
   $("summary-button").textContent = meeting?.summary ? "重新生成纪要" : "生成纪要";
 }
 
@@ -520,7 +544,12 @@ async function record(action) {
 
 // startJob submits background work and refreshes its durable status.
 async function startJob(kind) {
-  await api(pathFor() + "/jobs/" + kind, "POST", kind === "transcription" ? {language: $("language").value} : undefined);
+  try {
+    await api(pathFor() + "/jobs/" + kind, "POST", kind === "transcription" ? {language: $("language").value} : undefined);
+  } catch (error) {
+    if (kind === "transcription") await refreshASRStatus().catch(() => {});
+    throw error;
+  }
   await selectMeeting(state.id);
 }
 
@@ -550,7 +579,7 @@ function openSegment(index) {
 }
 
 // openSettings retrieves the current model configuration without exposing keys.
-async function openSettings() {
+async function openSettings(focusModelDirectory = false) {
   const [config, profiles, summaries] = await Promise.all([
     api("/api/settings?credentials=1"), api("/api/asr/profiles"), api("/api/summary/profiles"),
   ]);
@@ -575,7 +604,9 @@ async function openSettings() {
   updateASRSettings(false);
   updateSummarySettings(false);
   $("credentials-notice").hidden = Boolean(config.credentials?.can_manage);
+  $("asr-model-guide").open = false;
   $("settings-dialog").showModal();
+  if (focusModelDirectory && !$("asr-model-dir").hidden) $("asr-model-dir").focus();
   notify("");
 }
 
@@ -729,11 +760,16 @@ function showImportQueue() {
   $("import-title-field").hidden = count > 1;
   const submit = $("import-submit");
   const importing = $("import-file").disabled;
-  submit.disabled = importing || available.length === 0 || count > maxImportFiles;
+  updateImportSubmit();
   submit.setAttribute("aria-busy", String(importing));
   if (waiting && importFFmpeg !== "checking") $("ffmpeg-guide").open = true;
   submit.textContent = importing ? "正在导入…" : waiting && available.length ? "先导入音频" :
     available.some((entry) => entry.error) ? "重试失败文件" : "导入";
+}
+
+function updateImportSubmit() {
+  $("import-submit").disabled = state.busy || $("import-file").disabled ||
+    importQueue.length > maxImportFiles || !importQueue.some(canImportFile);
 }
 
 // checkImportTool rechecks the service host and never requests the selected files.
@@ -849,27 +885,24 @@ function wireEvents() {
   $("new-button").onclick = $("empty-new").onclick = () => openMeetingDialog();
   $("edit-title").onclick = () => { $("meeting-menu").open = false; openMeetingDialog(true); };
   $("library-toggle").onclick = (event) => setLibraryOpen(event.currentTarget.getAttribute("aria-expanded") !== "true");
-  document.addEventListener("pointerdown", (event) => {
-    if (!$("meeting-menu").contains(event.target)) $("meeting-menu").open = false;
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !$("meeting-menu").open) return;
-    $("meeting-menu").open = false;
-    $("meeting-menu").querySelector("summary").focus();
-  });
+  for (const menu of document.querySelectorAll(".meeting-menu")) {
+    document.addEventListener("pointerdown", (event) => {
+      if (!menu.contains(event.target)) menu.open = false;
+    });
+    menu.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !menu.open) return;
+      menu.open = false;
+      menu.querySelector("summary").focus();
+    });
+  }
   $("import-button").onclick = $("empty-import").onclick = openImportDialog;
   $("import-file").onchange = selectImportFiles;
   $("ffmpeg-recheck").onclick = checkImportTool;
   $("import-dialog").addEventListener("cancel", (event) => {
     if ($("import-file").disabled) event.preventDefault();
   });
-  $("settings-button").onclick = async (event) => {
-    const button = event.currentTarget;
-    button.disabled = true;
-    try { await openSettings(); }
-    catch (error) { notify(error.message); }
-    finally { button.disabled = false; }
-  };
+  $("settings-button").onclick = () => run(openSettings);
+  $("transcribe-settings").onclick = () => run(() => openSettings(true));
   $("asr-provider").onchange = () => updateASRSettings(true);
   $("asr-local-model").onchange = updateLocalModelHelp;
   $("provider").onchange = () => updateSummarySettings(true);
@@ -915,12 +948,16 @@ function wireEvents() {
     if (state.id === id) renderMeeting(meeting);
     notify("笔记已保存", "success");
   });
-  $("export-button").onclick = () => {
-    const link = elem("a");
-    link.href = pathFor() + "/export?format=" + $("export-format").value;
-    link.download = "";
-    link.click();
-  };
+  for (const button of $("export-menu").querySelectorAll("[data-export]")) {
+    button.onclick = () => {
+      const link = elem("a");
+      link.href = pathFor() + "/export?format=" + button.dataset.export;
+      link.download = "";
+      link.click();
+      $("export-menu").open = false;
+      $("export-menu").querySelector("summary").focus();
+    };
+  }
   $("delete-button").onclick = () => run(async () => {
     $("meeting-menu").open = false;
     if (!window.confirm("删除「" + state.meeting.title + "」及其音频？")) return;
