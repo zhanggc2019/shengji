@@ -48,7 +48,7 @@ func Main(options Options) {
 	}
 }
 
-// dataDir locates the new library independently of any installed Python edition.
+// dataDir returns the default library location shared by Shengji Desktop and Server.
 func dataDir() (string, error) {
 	root := os.Getenv("LOCALAPPDATA")
 	if root == "" {
@@ -58,7 +58,7 @@ func dataDir() (string, error) {
 			return "", err
 		}
 	}
-	return filepath.Join(root, "OddMeta", "OddMinutes Go"), nil
+	return filepath.Join(root, "Shengji"), nil
 }
 
 // run starts the shared HTTP service and shuts it down after the window or process exits.
