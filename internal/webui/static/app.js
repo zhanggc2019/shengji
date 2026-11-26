@@ -177,14 +177,30 @@ async function refreshList(append = false) {
   renderLibraryState();
 }
 
-// selectMeeting updates only the meeting still selected when the response arrives.
+// selectMeeting preserves the scroll position for updates to the open meeting.
 async function selectMeeting(id) {
   const meeting = id ? await api(pathFor(id)) : null;
-  if (state.id !== id) showPanel("transcript");
+  const changed = state.id !== id;
+  if (changed) showPanel("transcript");
   state.id = id;
   rememberMeeting(id);
   renderMeeting(meeting);
   renderList();
+  if (changed) {
+    $("workspace-content").scrollTop = 0;
+    $("transcription-history").open = false;
+    for (const menu of document.querySelectorAll(".meeting-menu")) menu.open = false;
+  }
+}
+
+// returnToRecording opens the meeting that owns the recorder without altering the recording.
+async function returnToRecording() {
+  const id = state.recording.meeting_id;
+  if (!id) return;
+  if (id !== state.id) await selectMeeting(id);
+  setLibraryOpen(false);
+  $("workspace-content").scrollTop = 0;
+  $("title").focus({preventScroll: true});
 }
 
 // refreshCurrent refreshes only on mutations from the WebSocket rather than at the meter frequency.
@@ -274,12 +290,14 @@ function connect() {
 // setConnection keeps connection state accessible as text and a colored indicator.
 function setConnection(text) {
   const label = $("connection");
-  label.replaceChildren(elem("span", undefined, "connection-dot"), document.createTextNode(text));
+  label.querySelector(".connection-label").textContent = text;
+  label.title = text;
   label.classList.toggle("online", state.online);
 }
 
 // showPanel exposes the selected view while preserving unsaved text.
 function showPanel(name) {
+  if ($(name + "-panel").hidden) $("workspace-content").scrollTop = 0;
   for (const panel of panelNames) {
     const selected = panel === name;
     const tab = $(panel + "-tab");
@@ -306,10 +324,15 @@ function navigatePanels(event) {
 function renderJob(kind, target) {
   const node = $(target);
   const job = (state.meeting?.jobs || []).find((entry) => entry.kind === kind);
-  const text = job && {queued: "等待处理", running: "正在处理…", completed: "已完成", failed: job.error}[job.state];
-  node.textContent = text || "";
+  const label = kind === "transcription" ? "转录" : "纪要";
+  const text = job && {
+    queued: label + "已排队",
+    running: kind === "transcription" ? "正在转录…" : "正在生成纪要…",
+    completed: label + "已完成",
+    failed: label + "失败" + (job.error ? "：" + job.error : ""),
+  }[job.state] || "";
+  if (node.textContent !== text) node.textContent = text;
   node.classList.toggle("danger", job?.state === "failed");
-  node.hidden = !text;
 }
 
 // renderMeeting updates the view without resetting a playing recording or unsaved notes.
@@ -360,15 +383,16 @@ function transcriptionMeasurements(metrics, knownDuration) {
 
 // renderTranscriptionInfo shows the model and timing of completed runs.
 function renderTranscriptionInfo(meeting) {
-  const source = $("transcription-source");
-  source.hidden = !meeting.segments?.length;
-  source.textContent = source.hidden ? "" : "转录模型：" + (meeting.transcription_source?.label || "未记录");
-  const timing = $("transcription-metrics");
-  timing.textContent = source.hidden ? "" : transcriptionMeasurements(meeting.transcription_metrics, meeting.duration);
-  timing.hidden = !timing.textContent;
+  const hasTranscript = Boolean(meeting.segments?.length);
+  const details = $("transcription-history");
+  details.hidden = !hasTranscript;
+  if (!hasTranscript) details.open = false;
+  $("transcription-source").textContent = hasTranscript ? "转录模型：" + (meeting.transcription_source?.label || "未记录") : "";
+  $("transcription-metrics").textContent = hasTranscript ? transcriptionMeasurements(meeting.transcription_metrics, meeting.duration) : "";
   const runs = (meeting.jobs || []).filter((job) => job.transcription_metrics);
-  $("transcription-history").hidden = runs.length < 2;
-  $("transcription-runs").replaceChildren(...runs.map((job) => elem("li",
+  const history = $("transcription-runs");
+  history.hidden = runs.length < 2;
+  history.replaceChildren(...runs.map((job) => elem("li",
     (job.transcription_source?.label || "未记录") + " · " + transcriptionMeasurements(job.transcription_metrics, meeting.duration))));
 }
 
@@ -387,6 +411,45 @@ async function recordAudioDuration() {
   } catch {}
 }
 
+// renderRecorder keeps the global recording shortcut and the current meeting's audio controls in sync.
+function renderRecorder(current, active, owns, hasAudio, pending) {
+  const liveText = active ? ({recording: "录音中", paused: "已暂停", error: "录音中断"}[current.state] || "") : "";
+  const badge = $("recording-badge");
+  const label = $("recording-label");
+  badge.hidden = !liveText;
+  if (badge.dataset.state !== current.state) badge.dataset.state = current.state;
+  if (label.textContent !== liveText) {
+    label.textContent = liveText;
+    badge.setAttribute("aria-label", liveText ? liveText + "，查看录音会议" : "查看录音会议");
+    $("recording-announcement").textContent = liveText || "当前无录音任务";
+  }
+  const liveClock = $("recording-clock");
+  const clock = formatClock(current.seconds);
+  if (liveClock.textContent !== clock) liveClock.textContent = clock;
+  const transport = $("transport");
+  const audioState = owns ? current.state : hasAudio ? "saved" : "idle";
+  if (transport.dataset.state !== audioState) transport.dataset.state = audioState;
+  const audioStatus = $("audio-status");
+  const audioText = owns ? (current.state === "error" ? "录音中断，仍可保存" : liveText) : active ? "正在录制另一场会议" : "待录音";
+  if (audioStatus.textContent !== audioText) audioStatus.textContent = audioText;
+  const error = $("audio-error");
+  const message = owns ? current.error || "" : "";
+  if (error.textContent !== message) error.textContent = message;
+  error.hidden = !message;
+  const timer = $("duration");
+  if (timer.textContent !== (owns ? clock : "00:00")) timer.textContent = owns ? clock : "00:00";
+  $("mic-meter").value = current.mic_peak || 0;
+  $("system-meter").value = current.system_peak || 0;
+  $("meters").hidden = !owns;
+  $("audio-options").hidden = owns || hasAudio;
+  $("start-button").hidden = owns || hasAudio;
+  $("start-button").disabled = state.busy || active || pending;
+  $("pause-button").hidden = !owns || current.state === "error";
+  const pauseText = current.state === "paused" ? "继续录音" : "暂停";
+  if ($("pause-button").textContent !== pauseText) $("pause-button").textContent = pauseText;
+  $("stop-button").hidden = !owns;
+}
+
 // renderControls mirrors the authoritative recorder and job state in all open windows.
 function renderControls() {
   if ($("import-dialog").open) updateImportSubmit();
@@ -396,28 +459,10 @@ function renderControls() {
   const active = Boolean(current.meeting_id);
   const owns = active && current.meeting_id === meeting?.id;
   const pending = (meeting?.jobs || []).some((job) => job.state === "running" || job.state === "queued");
-  const badge = $("recording-badge");
-  const liveText = active ? ({recording: "录音中", paused: "已暂停", error: "录音中断，仍可保存"}[current.state] || "") : "";
-  if (badge.textContent !== liveText) badge.textContent = liveText;
-  if (badge.title !== (current.error || "")) badge.title = current.error || "";
-  const audioStatus = $("audio-status");
-  const audioText = owns ? liveText : meeting?.has_audio ? "已保存，可回听" : active ? "正在录制另一场会议" : "待录音";
-  if (audioStatus.textContent !== audioText) audioStatus.textContent = audioText;
-  const timer = $("duration");
-  const clock = formatClock(owns ? current.seconds : meeting?.duration);
-  if (timer.textContent !== clock) timer.textContent = clock;
-  $("save-notes").disabled = !meeting || (state.noteDrafts.get(meeting.id) ?? meeting.notes) === meeting.notes;
-  $("mic-meter").value = current.mic_peak || 0;
-  $("system-meter").value = current.system_peak || 0;
-  $("meters").hidden = !owns;
-  $("audio-options").hidden = owns || Boolean(meeting?.has_audio);
-  $("start-button").hidden = owns || Boolean(meeting?.has_audio);
-  $("start-button").disabled = state.busy || active || pending;
-  $("pause-button").hidden = !owns || current.state === "error";
-  $("pause-button").textContent = current.state === "paused" ? "继续录音" : "暂停";
-  $("stop-button").hidden = !owns;
-  $("delete-button").disabled = owns || pending;
   const hasAudio = Boolean(meeting?.has_audio);
+  renderRecorder(current, active, owns, hasAudio, pending);
+  $("save-notes").disabled = !meeting || (state.noteDrafts.get(meeting.id) ?? meeting.notes) === meeting.notes;
+  $("delete-button").disabled = owns || pending;
   const hasTranscript = Boolean(meeting?.segments?.length);
   const needsModel = hasAudio && state.asrNeedsModel && !pending;
   const exportMenu = $("export-menu");
@@ -431,7 +476,8 @@ function renderControls() {
   $("transcribe-settings").disabled = state.busy;
   $("transcribe-button").textContent = hasTranscript ? "重新转录" : "生成转录";
   $("transcribe-button").classList.toggle("primary", !hasTranscript);
-  $("transcribe-settings").hidden = $("transcribe-setup-hint").hidden = !needsModel;
+  $("transcribe-settings").hidden = !needsModel;
+  $("transcribe-setup-hint").hidden = !needsModel || hasTranscript;
   $("transcribe-settings").classList.toggle("primary", !hasTranscript);
   const empty = $("transcript").querySelector(".empty-text");
   if (empty) {
@@ -482,7 +528,7 @@ function renderSegments(segments) {
     if (state.meeting.mode !== "transcript") meta.append(elem("small", segment.speaker || "发言人"));
     const paragraph = elem("p");
     appendTimedText(paragraph, segment);
-    const edit = elem("button", "编辑");
+    const edit = elem("button", "编辑", "quiet segment-edit");
     edit.setAttribute("aria-label", "编辑转录片段 " + (index + 1));
     edit.addEventListener("click", () => openSegment(index));
     row.append(meta, paragraph, edit);
@@ -885,6 +931,17 @@ function wireEvents() {
   $("new-button").onclick = $("empty-new").onclick = () => openMeetingDialog();
   $("edit-title").onclick = () => { $("meeting-menu").open = false; openMeetingDialog(true); };
   $("library-toggle").onclick = (event) => setLibraryOpen(event.currentTarget.getAttribute("aria-expanded") !== "true");
+  document.addEventListener("pointerdown", (event) => {
+    const toggle = $("library-toggle");
+    if (toggle.getAttribute("aria-expanded") === "true" && !toggle.closest(".library").contains(event.target)) setLibraryOpen(false);
+  });
+  document.querySelector(".library").addEventListener("keydown", (event) => {
+    const toggle = $("library-toggle");
+    if (event.key !== "Escape" || toggle.getAttribute("aria-expanded") !== "true") return;
+    setLibraryOpen(false);
+    toggle.focus();
+  });
+  $("recording-badge").onclick = () => run(returnToRecording);
   for (const menu of document.querySelectorAll(".meeting-menu")) {
     document.addEventListener("pointerdown", (event) => {
       if (!menu.contains(event.target)) menu.open = false;
@@ -958,6 +1015,10 @@ function wireEvents() {
       $("export-menu").querySelector("summary").focus();
     };
   }
+  $("download-audio").onclick = () => {
+    $("export-menu").open = false;
+    $("export-menu").querySelector("summary").focus();
+  };
   $("delete-button").onclick = () => run(async () => {
     $("meeting-menu").open = false;
     if (!window.confirm("删除「" + state.meeting.title + "」及其音频？")) return;

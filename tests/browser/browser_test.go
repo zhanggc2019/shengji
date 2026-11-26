@@ -95,7 +95,9 @@ func TestBrowserSmoke(t *testing.T) {
 
 	checkThemes(t, page, url)
 	checkSharedWorkspace(t, page, peer, url, provider.URL, audio)
+	checkPinnedPlayback(t, page)
 	checkNotesDraft(t, page, url)
+	checkRecordingShortcut(t, page)
 	saveScreenshot(t, page, *lightShot)
 	if *darkShot != "" {
 		must(t, role(page.Locator("body"), "button", "切换到深色主题", true).Click())
@@ -134,8 +136,15 @@ func providerDouble(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid ASR fixture request", http.StatusBadRequest)
 			return
 		}
+		segments := []map[string]any{{"text": "下周发布", "speaker": "李工", "start": 0, "end": 1.2}}
+		for index := range 24 {
+			start := 1.2 + float64(index)*0.03
+			segments = append(segments, map[string]any{
+				"text": "确认验收时间，更新项目计划。", "speaker": "王工", "start": start, "end": start + 0.03,
+			})
+		}
 		result = map[string]any{
-			"segments": []map[string]any{{"text": "下周发布", "speaker": "李工", "start": 0, "end": 1.2}},
+			"segments": segments,
 			"words": []map[string]any{
 				{"word": "下周", "start": 0, "end": 0.5},
 				{"word": "发布", "start": 0.5, "end": 1.2},

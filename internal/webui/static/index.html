@@ -35,111 +35,121 @@
         </div>
       </div>
     </aside>
+    <header class="topbar">
+      <div class="location">会议工作台</div>
+      <div class="topbar-actions">
+        <span class="visually-hidden" id="recording-announcement" role="status"></span>
+        <button id="recording-badge" type="button" title="查看录音会议" hidden>
+          <span id="recording-label"></span><span class="clock" id="recording-clock" aria-hidden="true"></span>
+        </button>
+        <span id="connection"><span class="connection-dot"></span><span class="connection-label">正在连接</span></span>
+        <button type="button" id="theme-toggle" aria-label="切换到深色主题" aria-pressed="false"><span class="theme-symbol" aria-hidden="true"></span><span class="theme-text" aria-hidden="true">深色</span></button>
+      </div>
+    </header>
     <main>
-      <header class="topbar">
-        <div class="location">会议工作台</div>
-        <div class="topbar-actions">
-          <span id="recording-badge" role="status"></span>
-          <span id="connection"><span class="connection-dot"></span>正在连接</span>
-          <button type="button" id="theme-toggle" aria-label="切换到深色主题" aria-pressed="false"><span class="theme-symbol" aria-hidden="true"></span><span class="theme-text" aria-hidden="true">深色</span></button>
-        </div>
-      </header>
       <div id="notice" role="status" hidden></div>
-      <p id="library-loading" role="status">正在加载会议库…</p>
-      <section id="empty" aria-labelledby="empty-title" hidden>
-        <div class="empty-intro">
-          <div class="empty-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-          <h1 id="empty-title">暂无会议</h1>
-          <p>录一场新的会议，或导入已有音视频开始转录。</p>
-          <div class="compact empty-actions" role="group" aria-label="记录下一场会议">
-            <button id="empty-new" class="primary">新建记录</button>
-            <button id="empty-import" class="quiet">导入音视频</button>
-          </div>
-        </div>
-      </section>
-      <article id="detail" hidden>
-        <header class="meeting-header">
-          <div><h1 id="title" tabindex="-1"></h1><p id="date"></p></div>
-          <div class="compact meeting-actions">
-            <details id="export-menu" class="meeting-menu" hidden>
-              <summary>导出<span class="chevron" aria-hidden="true"></span></summary>
-              <div class="meeting-menu-panel" aria-label="导出格式">
-                <button type="button" data-export="md">Markdown</button>
-                <button type="button" data-export="txt">TXT</button>
-                <button type="button" data-export="json">JSON</button>
-              </div>
-            </details>
-            <details id="meeting-menu" class="meeting-menu">
-              <summary>更多操作<span class="chevron" aria-hidden="true"></span></summary>
-              <div class="meeting-menu-panel">
-                <button id="edit-title">重命名会议</button>
-                <button id="delete-button" class="danger">删除会议</button>
-              </div>
-            </details>
-          </div>
-        </header>
-        <section class="transport" aria-labelledby="audio-label">
-          <div class="transport-head">
-            <div class="audio-heading">
-              <div><h2 id="audio-label">会议录音</h2><p id="audio-status">待录音</p></div>
-              <output id="duration" aria-label="录音时长">00:00</output>
-            </div>
-            <div class="compact">
-              <button id="start-button" class="record">开始录音</button>
-              <button id="pause-button" hidden>暂停</button>
-              <button id="stop-button" hidden>停止并保存</button>
-              <a id="download-audio" class="button" hidden>下载音频</a>
+      <div id="workspace-content">
+        <p id="library-loading" role="status">正在加载会议库…</p>
+        <section id="empty" aria-labelledby="empty-title" hidden>
+          <div class="empty-intro">
+            <div class="empty-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+            <h1 id="empty-title">暂无会议</h1>
+            <p>录一场新的会议，或导入已有音视频开始转录。</p>
+            <div class="compact empty-actions" role="group" aria-label="记录下一场会议">
+              <button id="empty-new" class="primary">新建记录</button>
+              <button id="empty-import" class="quiet">导入音视频</button>
             </div>
           </div>
-          <details id="audio-options">
-            <summary>录音选项</summary>
-            <div class="compact">
-              <label><input type="checkbox" id="system-audio" checked> 系统声音</label>
-              <label><input type="checkbox" id="auto-gain"> 自动增益</label>
-            </div>
-          </details>
-          <div id="meters" hidden>
-            <label>麦克风 <meter id="mic-meter" min="0" max="1" value="0"></meter></label>
-            <label>系统声音 <meter id="system-meter" min="0" max="1" value="0"></meter></label>
-          </div>
-          <audio id="audio-player" controls preload="metadata" hidden></audio>
         </section>
-        <div class="document">
-          <div class="tabs" role="tablist" aria-label="会议内容">
-            <button id="transcript-tab" role="tab" aria-selected="true" aria-controls="transcript-panel">转录</button>
-            <button id="summary-tab" role="tab" aria-selected="false" aria-controls="summary-panel" tabindex="-1">AI 纪要</button>
-            <button id="notes-tab" role="tab" aria-selected="false" aria-controls="notes-panel" tabindex="-1">笔记</button>
-          </div>
-          <section id="transcript-panel" class="panel" role="tabpanel" aria-labelledby="transcript-tab" tabindex="0">
-            <div class="panel-head">
-              <h2>转录文本</h2>
-              <div class="compact">
-                <select id="language" aria-label="转录语言"><option value="auto">自动识别</option><option value="zh">中文</option><option value="en">英语</option><option value="ja">日语</option></select>
-                <button id="transcribe-button" class="primary">生成转录</button>
-                <button id="transcribe-settings" class="primary" hidden aria-describedby="transcribe-setup-hint">配置转录模型</button>
-              </div>
+        <article id="detail" hidden>
+          <header class="meeting-header">
+            <div><h1 id="title" tabindex="-1"></h1><p id="date"></p></div>
+            <div class="compact meeting-actions">
+              <details id="export-menu" class="meeting-menu" hidden>
+                <summary>导出<span class="chevron" aria-hidden="true"></span></summary>
+                <div class="meeting-menu-panel" aria-label="导出格式">
+                  <a id="download-audio" class="button" hidden>下载音频</a>
+                  <button type="button" data-export="md">Markdown</button>
+                  <button type="button" data-export="txt">TXT</button>
+                  <button type="button" data-export="json">JSON</button>
+                </div>
+              </details>
+              <details id="meeting-menu" class="meeting-menu">
+                <summary>更多操作<span class="chevron" aria-hidden="true"></span></summary>
+                <div class="meeting-menu-panel">
+                  <button id="edit-title">重命名会议</button>
+                  <button id="delete-button" class="danger">删除会议</button>
+                </div>
+              </details>
             </div>
-            <p id="transcribe-setup-hint" class="field-hint" hidden>请先下载本机转录模型并填写模型包目录。</p>
-            <p id="transcribe-status" role="status" hidden></p>
-            <p id="transcription-source" class="field-hint" hidden></p>
-            <p id="transcription-metrics" class="field-hint" hidden></p>
-            <details id="transcription-history" class="transcription-history field-hint" hidden>
-              <summary>最近转录记录</summary>
-              <ul id="transcription-runs"></ul>
-            </details>
-            <div id="transcript"></div>
-          </section>
-          <section id="summary-panel" class="panel" role="tabpanel" aria-labelledby="summary-tab" tabindex="0" hidden>
-            <div class="panel-head"><h2>AI 纪要</h2><button id="summary-button" class="primary">生成纪要</button></div>
-            <p id="summary-status" role="status" hidden></p>
-            <div id="summary"></div>
-          </section>
-          <section id="notes-panel" class="panel" role="tabpanel" aria-labelledby="notes-tab" tabindex="0" hidden>
-            <div class="panel-head"><label for="notes">会议笔记</label><button id="save-notes" class="primary">保存笔记</button></div>
-            <textarea id="notes" rows="8" placeholder="记录补充信息"></textarea>
-          </section>
-        </div>
-      </article>
+          </header>
+          <div class="meeting-toolbar">
+            <section class="transport" id="transport" aria-labelledby="audio-label">
+              <div class="transport-head">
+                <div class="audio-heading">
+                  <div><h2 id="audio-label">会议录音</h2><p id="audio-status">待录音</p></div>
+                  <output id="duration" class="clock" aria-label="录音时长">00:00</output>
+                </div>
+                <div class="compact">
+                  <button id="start-button" class="record">开始录音</button>
+                  <button id="pause-button" hidden>暂停</button>
+                  <button id="stop-button" class="record" hidden>停止并保存</button>
+                </div>
+              </div>
+              <p id="audio-error" class="field-hint danger" hidden></p>
+              <details id="audio-options">
+                <summary>录音选项</summary>
+                <div class="compact">
+                  <label><input type="checkbox" id="system-audio" checked> 系统声音</label>
+                  <label><input type="checkbox" id="auto-gain"> 自动增益</label>
+                </div>
+              </details>
+              <div id="meters" hidden>
+                <label>麦克风 <meter id="mic-meter" min="0" max="1" value="0"></meter></label>
+                <label>系统声音 <meter id="system-meter" min="0" max="1" value="0"></meter></label>
+              </div>
+              <audio id="audio-player" aria-label="回听会议录音" controls preload="metadata" hidden></audio>
+            </section>
+            <div class="tabs" role="tablist" aria-label="会议内容">
+              <button id="transcript-tab" role="tab" aria-selected="true" aria-controls="transcript-panel">转录</button>
+              <button id="summary-tab" role="tab" aria-selected="false" aria-controls="summary-panel" tabindex="-1">AI 纪要</button>
+              <button id="notes-tab" role="tab" aria-selected="false" aria-controls="notes-panel" tabindex="-1">笔记</button>
+            </div>
+          </div>
+          <div class="document">
+            <section id="transcript-panel" class="panel" role="tabpanel" aria-labelledby="transcript-tab" tabindex="0">
+              <div class="panel-head">
+                <div class="panel-title">
+                  <h2>转录文本</h2>
+                  <p id="transcribe-status" role="status"></p>
+                </div>
+                <div class="compact">
+                  <select id="language" aria-label="转录语言"><option value="auto">自动识别</option><option value="zh">中文</option><option value="en">英语</option><option value="ja">日语</option></select>
+                  <button id="transcribe-button" class="primary">生成转录</button>
+                  <button id="transcribe-settings" class="primary" hidden aria-describedby="transcribe-setup-hint">配置转录模型</button>
+                </div>
+              </div>
+              <p id="transcribe-setup-hint" class="field-hint" hidden>请先下载本机转录模型并填写模型包目录。</p>
+              <details id="transcription-history" class="transcription-history field-hint" hidden>
+                <summary>转录详情</summary>
+                <p id="transcription-source" class="field-hint"></p>
+                <p id="transcription-metrics" class="field-hint"></p>
+                <ul id="transcription-runs" hidden></ul>
+              </details>
+              <div id="transcript"></div>
+            </section>
+            <section id="summary-panel" class="panel" role="tabpanel" aria-labelledby="summary-tab" tabindex="0" hidden>
+              <div class="panel-head"><h2>AI 纪要</h2><button id="summary-button" class="primary">生成纪要</button></div>
+              <p id="summary-status" role="status"></p>
+              <div id="summary"></div>
+            </section>
+            <section id="notes-panel" class="panel" role="tabpanel" aria-labelledby="notes-tab" tabindex="0" hidden>
+              <div class="panel-head"><label for="notes">会议笔记</label><button id="save-notes" class="primary">保存笔记</button></div>
+              <textarea id="notes" rows="8" placeholder="记录补充信息"></textarea>
+            </section>
+          </div>
+        </article>
+      </div>
     </main>
   </div>
 

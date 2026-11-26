@@ -52,6 +52,7 @@ func checkSharedWorkspace(t *testing.T, page, peer pw.Page, url, providerURL str
 	must(t, expect(peer.Locator("audio")).ToBeVisible())
 	must(t, expect(role(root, "button", "生成转录", true)).ToBeHidden())
 	must(t, page.Locator("#export-menu summary").Click())
+	must(t, expect(role(root, "link", "下载音频", true)).ToBeVisible())
 	must(t, expect(role(root, "button", "JSON", true)).ToBeVisible())
 	must(t, expect(role(root, "button", "Markdown", true)).ToBeHidden())
 	must(t, page.Keyboard().Press("Escape"))
@@ -62,9 +63,21 @@ func checkSharedWorkspace(t *testing.T, page, peer pw.Page, url, providerURL str
 	configureProviders(t, page, providerURL)
 	must(t, expect(peer.Locator("#active-asr")).ToContainText("OpenAI 兼容 · whisper-1"))
 
-	must(t, role(root, "button", "生成转录", true).Click())
+	_, err := page.WaitForFunction("() => !state.busy", nil)
+	must(t, err)
+	job, err := page.ExpectResponse("**/jobs/transcription", func() error {
+		return role(root, "button", "生成转录", true).Click()
+	})
+	must(t, err)
+	if job.Status() != http.StatusAccepted {
+		t.Fatalf("transcription request returned %d", job.Status())
+	}
 	must(t, expect(role(root, "button", "发布", true)).ToBeVisible())
+	details := page.Locator("#transcription-history summary")
+	must(t, details.Click())
+	must(t, expect(page.Locator("#transcription-metrics")).ToBeVisible())
 	must(t, expect(page.Locator("#transcription-metrics")).ToContainText("转录耗时"))
+	must(t, details.Click())
 	must(t, expect(role(peer.Locator("body"), "button", "发布", true)).ToBeVisible())
 	must(t, role(root, "button", "编辑转录片段 1", true).Click())
 	must(t, page.Locator("#segment-dialog").GetByLabel("文本", pw.LocatorGetByLabelOptions{Exact: pw.Bool(true)}).Fill("下周发布，李工负责"))
@@ -124,6 +137,52 @@ func checkNotesDraft(t *testing.T, page pw.Page, url string) {
 	must(t, err)
 }
 
+// checkPinnedPlayback keeps audio playback and tabs accessible above long transcripts.
+func checkPinnedPlayback(t *testing.T, page pw.Page) {
+	t.Helper()
+	must(t, page.SetViewportSize(920, 610))
+	defer func() { must(t, page.SetViewportSize(1200, 810)) }()
+	root := page.Locator("body")
+	must(t, role(root, "tab", "转录", true).Click())
+	must(t, expect(page.Locator(".segment").Nth(2)).ToBeInViewport(pw.LocatorAssertionsToBeInViewportOptions{Ratio: pw.Float(1)}))
+	_, err := page.Locator("#workspace-content").Evaluate("(node) => { node.scrollTop = node.scrollHeight; }", nil)
+	must(t, err)
+	checkPageCondition(t, page, `() => {
+		const content = document.querySelector('#workspace-content');
+		const player = document.querySelector('#audio-player').getBoundingClientRect();
+		const tabs = document.querySelector('.tabs').getBoundingClientRect();
+		return content.scrollTop > 300 && player.top >= content.getBoundingClientRect().top &&
+			player.height > 0 && tabs.top >= player.bottom && tabs.bottom < innerHeight;
+	}`)
+	must(t, role(root, "tab", "笔记", true).Click())
+	must(t, expect(root.GetByLabel("会议笔记")).ToBeVisible())
+}
+
+// checkRecordingShortcut exercises live recorder presentation without using the microphone.
+func checkRecordingShortcut(t *testing.T, page pw.Page) {
+	t.Helper()
+	root, library := page.Locator("body"), page.Locator("#meeting-list")
+	must(t, role(library, "button", "另一场会议").Click())
+	heading := role(root, "heading", "另一场会议", true)
+	must(t, expect(heading).ToBeVisible())
+	_, err := page.Evaluate(`() => {
+		state.recording = {meeting_id: state.id, state: "recording", seconds: 128, mic_peak: .6};
+		renderControls();
+	}`)
+	must(t, err)
+	must(t, role(library, "button", fixtureMeeting).Click())
+	badge := role(root, "button", "录音中，查看录音会议", true)
+	must(t, expect(badge).ToContainText("02:08"))
+	must(t, badge.Click())
+	must(t, expect(heading).ToBeFocused())
+	must(t, expect(role(root, "button", "停止并保存", true)).ToBeVisible())
+	_, err = page.Evaluate(`() => { state.recording = {state: "idle"}; renderControls(); }`)
+	must(t, err)
+	must(t, expect(badge).ToBeHidden())
+	must(t, role(library, "button", fixtureMeeting).Click())
+	must(t, role(root, "tab", "AI 纪要", true).Click())
+}
+
 // checkNarrowWorkspace verifies the collapsed library, tab keyboard controls, and narrow overflow.
 func checkNarrowWorkspace(t *testing.T, browser pw.Browser, url string) {
 	mobile, err := browser.NewContext(pw.BrowserNewContextOptions{
@@ -139,7 +198,7 @@ func checkNarrowWorkspace(t *testing.T, browser pw.Browser, url string) {
 	must(t, expect(role(root, "heading", "另一场会议")).ToBeVisible())
 	library := role(root, "button", "会议库", true)
 	must(t, expect(library).ToHaveAttribute("aria-expanded", "false"))
-	const compactHeader = "document.querySelector('.topbar').getBoundingClientRect().top - document.querySelector('#library-toggle').getBoundingClientRect().bottom < 30"
+	const compactHeader = "document.querySelector('#workspace-content').getBoundingClientRect().top < 60"
 	checkPageCondition(t, page, compactHeader)
 	must(t, expect(root.GetByRole("searchbox")).ToBeHidden())
 	must(t, library.Tap())
