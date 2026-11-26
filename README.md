@@ -32,7 +32,9 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 
 ### GitHub 发布与桌面更新
 
-GitHub Actions 在 PR 中运行 Go 测试和静态检查，推送到 `main` 后构建三种 Windows 安装包并发布到 [GitHub Releases](https://github.com/zhanggc2019/shengji/releases)。没有稳定版本标签时从 `v0.0.1` 开始，随后每次发布增加补丁号。也可以在 `main` 手动运行工作流。最新发布已包含的提交会跳过重复打包。本地打包可以用 `-Version 0.0.2` 指定版本，用 `-UpdateRepository owner/repo` 指定公开发布仓库。
+GitHub Actions 在 PR 和推送到 `main` 时运行 Go 测试和静态检查。只有推送 `vMAJOR.MINOR.PATCH` 格式的版本标签（如 `v0.0.2`）才会触发打包和发布。检查通过后，工作流从标签读取版本号，构建三种 Windows 安装包并发布到 [GitHub Releases](https://github.com/zhanggc2019/shengji/releases)。本地打包可以用 `-Version 0.0.2` 指定版本，用 `-UpdateRepository owner/repo` 指定公开发布仓库。
+
+发布时，在要发布的提交上创建标签，例如 `git tag v0.0.2`，然后执行 `git push origin v0.0.2`。
 
 安装版启动后会检查更新，持续运行时每 6 小时重新检查。托盘菜单的「检查更新」显示当前版本，也可以手动查询。更新会选择相同架构和安装类型的包，下载后核对文件大小和 GitHub 提供的 SHA-256。确认「退出并安装」后，应用会保存正在录制的音频并退出，安装程序等旧进程结束再替换文件。工作台中尚未保存的文字请先保存。离线版检查和下载更新时需要连接 GitHub。源码开发版和独立 Server 版可通过重新构建或下载新版本更新。
 

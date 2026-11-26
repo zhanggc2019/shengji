@@ -4,7 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
-  workflow_dispatch:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: read
@@ -15,12 +16,22 @@ concurrency:
 
 jobs:
   build:
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name != 'push' || !github.event.deleted
     runs-on: windows-2025
     timeout-minutes: 35
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
+      - name: Read version from tag
+        id: version
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -cnotmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+            Write-Error 'A release tag must use the stable vMAJOR.MINOR.PATCH format.'
+            exit 1
+          }
+          "version=$($env:GITHUB_REF_NAME.Substring(1))" >> $env:GITHUB_OUTPUT
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -34,25 +45,6 @@ jobs:
           go test ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
-      - name: Select release version
-        id: version
-        if: github.event_name != 'pull_request'
-        shell: pwsh
-        run: |
-          $version = (Get-Content -Raw internal/buildinfo/version.txt).Trim()
-          $tags = @(git tag --list --sort=-version:refname | Where-Object { $_ -cmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' })
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($tags.Count -gt 0) {
-            git merge-base --is-ancestor HEAD $tags[0]
-            if ($LASTEXITCODE -eq 0) {
-              Write-Host "This commit is already covered by $($tags[0])."
-              exit 0
-            }
-            if ($LASTEXITCODE -ne 1) { exit $LASTEXITCODE }
-            $previous = [version]($tags[0].Substring(1))
-            $version = "$($previous.Major).$($previous.Minor).$($previous.Build + 1)"
-          }
-          "version=$version" >> $env:GITHUB_OUTPUT
       - uses: msys2/setup-msys2@v2
         id: msys2
         if: steps.version.outputs.version != ''
@@ -108,8 +100,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_VERSION: ${{ needs.build.outputs.version }}
         run: |
-          gh release create "v$RELEASE_VERSION" \
+          gh release create "$GITHUB_REF_NAME" \
             installers/Shengji-amd64-installer.exe \
             installers/Shengji-amd64-offline-installer.exe \
             installers/Shengji-arm64-installer.exe \
-            --target "$GITHUB_SHA" --title "声记 v$RELEASE_VERSION" --generate-notes --latest
+            --verify-tag --title "声记 v$RELEASE_VERSION" --generate-notes --latest
